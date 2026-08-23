@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Name=OdooNoir
+Comment=Odoo instance manager
+Exec=/usr/local/bin/odoonoir-launcher %u
+Terminal=false
+Type=Application
+Icon=odoonoir
+Categories=Development;Utility;
+Keywords=odoo;erp;instance;manager;
+StartupWMClass=odoonoir

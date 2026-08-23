@@ -1,0 +1,42 @@
+# nfpm configuration for OdooNoir
+# https://nfpm.goreleaser.com
+
+name: odoonoir
+arch: ${GOARCH}
+platform: "linux"
+version: "0.5.0"
+section: "utils"
+priority: "optional"
+maintainer: "Ahmed <ahmed@users.noreply.github.com>"
+description: "Odoo instance manager — create, manage and monitor Odoo installations"
+vendor: "OdooNoir"
+homepage: "https://github.com/ahmed/odoonoir"
+license: "MIT"
+release: "1"
+
+contents:
+  - src: "./bin/odoonoir"
+    dst: "/usr/local/bin/odoonoir"
+  - src: "./linux/odoonoir-launcher.sh"
+    dst: "/usr/local/bin/odoonoir-launcher"
+    file_info:
+      mode: 0755
+  - src: "./build/appicon.png"
+    dst: "/usr/share/icons/hicolor/128x128/apps/odoonoir.png"
+  - src: "./build/appicon_64.png"
+    dst: "/usr/share/icons/hicolor/64x64/apps/odoonoir.png"
+  - src: "./build/appicon_48.png"
+    dst: "/usr/share/icons/hicolor/48x48/apps/odoonoir.png"
+  - src: "./build/appicon_32.png"
+    dst: "/usr/share/icons/hicolor/32x32/apps/odoonoir.png"
+  - src: "./linux/desktop"
+    dst: "/usr/share/applications/odoonoir.desktop"
+
+depends:
+  - libgtk-3-0
+  - libwebkit2gtk-4.1-0 | libwebkit2gtk-4.0-37
+  - libayatana-appindicator3-1 | libappindicator3-1
+
+scripts:
+  postinstall: "./linux/nfpm/scripts/postinstall.sh"
+  postremove: "./linux/nfpm/scripts/postremove.sh"

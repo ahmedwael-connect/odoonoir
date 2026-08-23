@@ -1,0 +1,44 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+gui/bin/
+bin/
+
+# Go
+*.test
+*.out
+vendor/
+
+# Node / Frontend
+gui/frontend/node_modules/
+gui/frontend/dist/
+gui/frontend/.vite/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Wails build cache
+gui/.task/
+
+# Logs
+*.log
+/tmp/
+
+# Dev certs
+*.pem
+*.key
+
+# Environment
+.env
+.env.local
