@@ -207,7 +207,7 @@ logfile keys are honored, and no key is ever rewritten.`,
 	f.StringVar(&opts.DBName, "db", "", "database name (default: conf db_name)")
 	f.StringVar(&opts.DBUser, "db-user", "", "postgres role (default: conf db_user or odoo)")
 	f.IntVar(&opts.Port, "port", 0, "HTTP port (default: conf http_port)")
-	f.StringVar(&opts.Version, "version", "", "Odoo version, e.g. 18.0 (auto-detected from release.py/git)")
+	f.StringVar(&opts.Version, "version", "", "Odoo version, e.g. 16.0, 18.0 (auto-detected from release.py/git)")
 	f.StringVar(&opts.Description, "description", "", "free-form description")
 	f.StringVar(&opts.Root, "root", "", "odoonoir metadata root (default: the config instances dir)")
 	f.BoolVar(&flagNoPrompt, "no-prompt", false, "never prompt interactively (flags only)")
@@ -322,7 +322,7 @@ func adoptSourceWizard(opts *adopt.Options) error {
 // are unreliable in a single process.
 func adoptMissingWizard(inst *instance.Instance, opts *adopt.Options) error {
 	if inst.Version == "" {
-		version, err := prompt.Ask("Odoo version could not be detected (17.0/18.0/19.0)", "18.0")
+		version, err := prompt.Ask("Odoo version could not be detected (16.0/17.0/18.0/19.0)", "18.0")
 		if err != nil {
 			return err
 		}

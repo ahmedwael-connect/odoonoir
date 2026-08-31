@@ -112,10 +112,10 @@ database and log path.`,
 				fmt.Println(th.Hintf("no instances registered — create one with: odoonoir create <name> -v 18"))
 				return nil
 			}
-			rows := make([][]string, 0, len(instances))
-			for _, inst := range instances {
-				p := inst.ResolvePaths(instRoot(inst))
-				mgr := proc.New(p, installer.PythonFor(inst, p), p.Conf)
+rows := make([][]string, 0, len(instances))
+		for _, inst := range instances {
+			p := inst.ResolvePaths(instRoot(inst))
+			mgr := proc.New(p, installer.PythonFor(inst, p), p.Conf, inst.LongpollPort)
 				status, pid, err := mgr.Status()
 				if err != nil {
 					status = instance.StatusUnknown
@@ -171,9 +171,9 @@ even for huge files.`,
 			if err != nil {
 				return err
 			}
-			inst := insts[0]
-			p := inst.ResolvePaths(instRoot(inst))
-			mgr := proc.New(p, installer.PythonFor(inst, p), p.Conf)
+inst := insts[0]
+		p := inst.ResolvePaths(instRoot(inst))
+		mgr := proc.New(p, installer.PythonFor(inst, p), p.Conf, inst.LongpollPort)
 			if !isInteractive() {
 				return fmt.Errorf("watch needs a terminal — run it interactively or use: odoonoir logs -f %s", inst.Name)
 			}

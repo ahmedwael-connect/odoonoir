@@ -500,3 +500,134 @@ func clampIndex(i, n int) int {
 	}
 	return i
 }
+
+// RawAddonsEntry is one path with its enabled flag (active vs commented).
+type RawAddonsEntry struct {
+	Path    string
+	Enabled bool
+}
+
+// RawAddonsPathEntries returns all addons_path entries in file order,
+// including disabled (commented) ones. Each comma-separated value is exploded.
+func (c *OdooConf) RawAddonsPathEntries() []RawAddonsEntry {
+	var out []RawAddonsEntry
+	for _, l := range c.lines {
+		if !isOptions(l) || l.Key != "addons_path" {
+			continue
+		}
+		if l.Kind != KindKey && l.Kind != KindCommentedKey {
+			continue
+		}
+		enabled := l.Kind == KindKey
+		paths, _ := splitPaths(l.Value)
+		for _, p := range paths {
+			out = append(out, RawAddonsEntry{Path: p, Enabled: enabled})
+		}
+	}
+	return out
+}
+
+// RemoveRawAddonsEntry removes a path whether enabled or disabled (commented).
+func (c *OdooConf) RemoveRawAddonsEntry(path string) {
+	// remove from active
+	if cur, _ := c.AddonsPath(); cur != nil {
+		for i, p := range cur {
+			if p == path {
+				cur = append(cur[:i], cur[i+1:]...)
+				_ = c.SetAddonsPath(cur)
+				break
+			}
+		}
+	}
+	// remove from commented line
+	for i, l := range c.lines {
+		if !isOptions(l) || l.Key != "addons_path" || l.Kind != KindCommentedKey {
+			continue
+		}
+		paths, _ := splitPaths(l.Value)
+		filtered := []string{}
+		changed := false
+		for _, p := range paths {
+			if p == path {
+				changed = true
+				continue
+			}
+			filtered = append(filtered, p)
+		}
+		if changed {
+			if len(filtered) == 0 {
+				// remove the commented line entirely
+				c.lines = append(c.lines[:i], c.lines[i+1:]...)
+			} else {
+				c.lines[i].Value = strings.Join(filtered, ",")
+				c.lines[i].Raw = "; addons_path = " + c.lines[i].Value
+			}
+			c.dirty = true
+			break
+		}
+	}
+}
+
+// EnableAddonsPath moves a disabled path back to active list (append by default).
+func (c *OdooConf) EnableAddonsPath(path string) {
+	// find commented entry containing path
+	for i, l := range c.lines {
+		if !isOptions(l) || l.Key != "addons_path" || l.Kind != KindCommentedKey {
+			continue
+		}
+		paths, _ := splitPaths(l.Value)
+		found := false
+		remaining := []string{}
+		for _, p := range paths {
+			if p == path {
+				found = true
+			} else {
+				remaining = append(remaining, p)
+			}
+		}
+		if found {
+			if len(remaining) == 0 {
+				c.lines = append(c.lines[:i], c.lines[i+1:]...)
+			} else {
+				c.lines[i].Value = strings.Join(remaining, ",")
+				c.lines[i].Raw = "; addons_path = " + c.lines[i].Value
+			}
+			c.dirty = true
+			// add to active
+			cur, _ := c.AddonsPath()
+			cur = append(cur, path)
+			_ = c.SetAddonsPath(cur)
+			return
+		}
+	}
+}
+
+// DisableAddonsPath moves an active path to disabled (commented) storage.
+func (c *OdooConf) DisableAddonsPath(path string) {
+	cur, _ := c.AddonsPath()
+	idx := -1
+	for i, p := range cur {
+		if p == path {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return
+	}
+	cur = append(cur[:idx], cur[idx+1:]...)
+	_ = c.SetAddonsPath(cur)
+	// append to commented line or create new
+	for i, l := range c.lines {
+		if isOptions(l) && l.Key == "addons_path" && l.Kind == KindCommentedKey {
+			paths, _ := splitPaths(l.Value)
+			paths = append(paths, path)
+			c.lines[i].Value = strings.Join(paths, ",")
+			c.lines[i].Raw = "; addons_path = " + c.lines[i].Value
+			c.dirty = true
+			return
+		}
+	}
+	c.lines = append(c.lines, Line{Kind: KindCommentedKey, Key: "addons_path", Value: path, Section: optionsSection, Raw: "; addons_path = " + path})
+	c.dirty = true
+}

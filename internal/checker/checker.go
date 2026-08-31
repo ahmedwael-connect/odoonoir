@@ -29,6 +29,7 @@ type Result struct {
 
 // PythonCompat maps Odoo major versions to acceptable Python major.minor prefixes.
 var PythonCompat = map[string][]string{
+	"16": {"3.8", "3.9", "3.10", "3.11"},
 	"17": {"3.10", "3.11", "3.12"},
 	"18": {"3.10", "3.11", "3.12", "3.13"},
 	"19": {"3.11", "3.12", "3.13"},
@@ -39,7 +40,13 @@ var AptPackages = []string{
 	"build-essential", "python3-dev", "python3-venv",
 	"libpq-dev", "libxml2-dev", "libxslt1-dev",
 	"libldap2-dev", "libsasl2-dev", "libssl-dev",
-	"libjpeg-dev", "libffi-dev", "libz-dev", "liblcms2-dev",
+	"libjpeg-dev", "libffi-dev", "zlib1g-dev", "liblcms2-dev",
+}
+
+// aptAliases maps old package names to new equivalents for dpkg check.
+var aptAliases = map[string][]string{
+	"libz-dev":   {"zlib1g-dev", "libz-dev"},
+	"zlib1g-dev": {"zlib1g-dev", "libz-dev"},
 }
 
 // Check describes a fully resolved system audit. Results is populated by Run.
@@ -50,8 +57,9 @@ type Check struct {
 // Run audits the whole system for Odoo readiness.
 func Run() *Check {
 	c := &Check{}
-	c.add(checkBin("python3", "Python 3.10+"))
+	c.add(checkBin("python3", "Python 3.8+"))
 	c.add(checkBin("python3.12", "for Odoo 17/18 venvs"))
+	c.add(checkBin("python3.10", "for Odoo 16 venvs"))
 	c.add(checkBin("git", "source checkout"))
 	c.add(checkBin("node", ">= 20 (Odoo 18+ asset build)"))
 	c.add(checkBin("npm", ">= 10 (Odoo 18+ asset build)"))
@@ -72,7 +80,7 @@ func (c *Check) ForVersion(odooVersion string) {
 	allowed, ok := PythonCompat[major]
 	if !ok {
 		c.add(Result{Check: "odoo-version", Severity: ERROR,
-			Required: "17, 18 or 19", Hint: "unsupported Odoo version: " + odooVersion})
+			Required: "16, 17, 18 or 19", Hint: "unsupported Odoo version: " + odooVersion})
 		return
 	}
 	candidates := candidatePythonVersions()
@@ -190,8 +198,18 @@ func checkSystemPackages() Result {
 	}
 	missing := []string{}
 	for _, pkg := range AptPackages {
-		ok, _ := dpkgInstalled(pkg)
-		if !ok {
+		found := false
+		aliases := aptAliases[pkg]
+		if len(aliases) == 0 {
+			aliases = []string{pkg}
+		}
+		for _, a := range aliases {
+			if ok, _ := dpkgInstalled(a); ok {
+				found = true
+				break
+			}
+		}
+		if !found {
 			missing = append(missing, pkg)
 		}
 	}

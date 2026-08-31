@@ -1,38 +1,51 @@
 package proc
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/ahmed/odoonoir/internal/instance"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // Manager starts/stops/checks Odoo processes via PID files.
 type Manager struct {
-	pidFile string
-	dbFile  string
-	logFile string
-	venvPy  string
-	conf    string
-	source  string
+	pidFile    string
+	dbFile     string
+	logFile    string
+	venvPy     string
+	conf       string
+	source     string
+	adminSrv   *AdminServer
+	adminPort  int
 }
 
 // New creates a process manager for the given instance paths.
-func New(p instance.Paths, venvPython, confPath string) *Manager {
-	return &Manager{
-		pidFile: p.PIDFile,
-		dbFile:  p.PIDFile + ".db",
-		logFile: p.Log,
-		venvPy:  venvPython,
-		conf:    confPath,
-		source:  p.Source,
+// adminPort is the Odoo longpolling port; admin server will listen on adminPort+1.
+func New(p instance.Paths, venvPython, confPath string, adminPort int) *Manager {
+	m := &Manager{
+		pidFile:   p.PIDFile,
+		dbFile:    p.PIDFile + ".db",
+		logFile:   p.Log,
+		venvPy:    venvPython,
+		conf:      confPath,
+		source:    p.Source,
+		adminPort: adminPort,
 	}
+	m.adminSrv = NewAdminServer(nil, m, m.logFile, adminPort)
+	return m
 }
 
 // ServingDB returns the database the running process was started with
@@ -210,6 +223,21 @@ func (m *Manager) Start(dbName string) error {
 	} else {
 		_ = os.Remove(m.dbFile)
 	}
+
+	// Start admin server
+	if m.adminSrv != nil {
+		m.adminSrv.inst = &instance.Instance{
+			Name:         filepath.Base(m.source),
+			Version:      "unknown",
+			Port:         0,
+			LongpollPort: m.adminPort,
+			DBName:       dbName,
+			Workers:      0,
+		}
+		go func() {
+			_ = m.adminSrv.Start()
+		}()
+	}
 	return nil
 }
 
@@ -251,6 +279,9 @@ func (m *Manager) Stop() error {
 	}
 	os.Remove(m.pidFile)
 	os.Remove(m.dbFile)
+	if m.adminSrv != nil {
+		m.adminSrv.Stop()
+	}
 	return fmt.Errorf("process %d (and its workers) did not die after SIGKILL", pid)
 }
 
@@ -315,4 +346,318 @@ func dirOf(path string) string {
 		return "."
 	}
 	return path[:idx]
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Prometheus Metrics
+// ═══════════════════════════════════════════════════════════════════════
+
+var (
+	httpRequestsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "odoo_http_requests_total",
+			Help: "Total HTTP requests handled by the instance",
+		},
+		[]string{"method", "path", "status"},
+	)
+	httpRequestDuration = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "odoo_http_request_duration_seconds",
+			Help:    "HTTP request latency in seconds",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"method", "path"},
+	)
+	workerBusy = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "odoo_workers_busy",
+			Help: "Number of busy workers",
+		},
+	)
+	workerTotal = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "odoo_workers_total",
+			Help: "Total configured workers",
+		},
+	)
+	dbConnectionsActive = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "odoo_db_connections_active",
+			Help: "Active database connections",
+		},
+	)
+	instanceUptime = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "odoo_instance_uptime_seconds",
+			Help: "Instance uptime in seconds",
+		},
+	)
+	instanceStartTime = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "odoo_instance_start_time_seconds",
+			Help: "Unix timestamp of instance start",
+		},
+	)
+)
+
+// ═══════════════════════════════════════════════════════════════════════
+// Admin HTTP Server
+// ═══════════════════════════════════════════════════════════════════════
+
+// AdminServer exposes /health, /metrics, /logs for monitoring.
+type AdminServer struct {
+	server     *http.Server
+	mux        *http.ServeMux
+	inst       *instance.Instance
+	mgr        *Manager
+	logPath    string
+	startTime  time.Time
+	ctx        context.Context
+	cancel     context.CancelFunc
+}
+
+// NewAdminServer creates an admin server for the instance.
+// It listens on longpolling_port + 1 (or port 8070 if not set).
+func NewAdminServer(inst *instance.Instance, mgr *Manager, logPath string, port int) *AdminServer {
+	ctx, cancel := context.WithCancel(context.Background())
+	adminPort := port + 1
+	if adminPort <= 0 {
+		adminPort = 8070
+	}
+	s := &AdminServer{
+		inst:      inst,
+		mgr:       mgr,
+		logPath:   logPath,
+		startTime: time.Now(),
+		ctx:       ctx,
+		cancel:    cancel,
+	}
+	s.mux = http.NewServeMux()
+	s.mux.HandleFunc("/health", s.handleHealth)
+	s.mux.HandleFunc("/metrics", s.handleMetrics)
+	s.mux.HandleFunc("/logs", s.handleLogs)
+	s.server = &http.Server{
+		Addr:         fmt.Sprintf("127.0.0.1:%d", adminPort),
+		Handler:      s.mux,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
+	}
+	// Initialize static metrics
+	if inst != nil {
+		workerTotal.Set(float64(inst.Workers))
+	}
+	instanceStartTime.Set(float64(s.startTime.Unix()))
+	return s
+}
+
+// Start runs the admin HTTP server.
+func (s *AdminServer) Start() error {
+	go func() {
+		<-s.ctx.Done()
+		_ = s.server.Shutdown(context.Background())
+	}()
+	return s.server.ListenAndServe()
+}
+
+// Stop stops the admin server.
+func (s *AdminServer) Stop() {
+	s.cancel()
+}
+
+// handleHealth returns JSON health status.
+func (s *AdminServer) handleHealth(w http.ResponseWriter, r *http.Request) {
+	status, pid, _ := s.mgr.Status()
+	uptime := time.Since(s.startTime).Seconds()
+
+	resp := map[string]any{
+		"status":     string(status),
+		"pid":        pid,
+		"uptime":     uptime,
+		"start_time": s.startTime.Unix(),
+	}
+	if s.inst != nil {
+		resp["version"] = s.inst.Version
+		resp["name"] = s.inst.Name
+		resp["port"] = s.inst.Port
+		resp["db"] = s.inst.DBName
+		resp["workers"] = s.inst.Workers
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-cache")
+	json.NewEncoder(w).Encode(resp)
+	httpRequestsTotal.WithLabelValues(r.Method, "/health", "200").Inc()
+}
+
+// handleMetrics exposes Prometheus metrics.
+func (s *AdminServer) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	// Update dynamic metrics before serving
+	status, _, _ := s.mgr.Status()
+	if status == instance.StatusRunning {
+		instanceUptime.Set(time.Since(s.startTime).Seconds())
+	} else {
+		instanceUptime.Set(0)
+	}
+	// Note: workerBusy, dbConnectionsActive would need runtime instrumentation
+	// For now, expose what we have.
+
+	promhttp.Handler().ServeHTTP(w, r)
+	httpRequestsTotal.WithLabelValues(r.Method, "/metrics", "200").Inc()
+}
+
+// handleLogs returns log lines, optionally as JSON.
+func (s *AdminServer) handleLogs(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	format := query.Get("format") // "json" or "text" (default)
+	level := strings.ToLower(query.Get("level")) // error, warning, info, debug
+	limitStr := query.Get("limit")
+	sinceStr := query.Get("since") // unix timestamp
+
+	limit := 200
+	if limitStr != "" {
+		if n, err := strconv.Atoi(limitStr); err == nil && n > 0 && n <= 5000 {
+			limit = n
+		}
+	}
+	var since int64
+	if sinceStr != "" {
+		if n, err := strconv.ParseInt(sinceStr, 10, 64); err == nil {
+			since = n
+		}
+	}
+
+	lines, err := readLogLines(s.logPath, limit, since)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Filter by level if specified
+	if level != "" {
+		filtered := make([]string, 0, len(lines))
+		for _, line := range lines {
+			upper := strings.ToUpper(line)
+			switch level {
+			case "error":
+				if strings.Contains(upper, "ERROR") || strings.Contains(upper, "FATAL") || strings.Contains(upper, "CRITICAL") {
+					filtered = append(filtered, line)
+				}
+			case "warning", "warn":
+				if strings.Contains(upper, "WARNING") || strings.Contains(upper, "WARN") {
+					filtered = append(filtered, line)
+				}
+			case "info":
+				if strings.Contains(upper, "INFO") {
+					filtered = append(filtered, line)
+				}
+			case "debug":
+				if strings.Contains(upper, "DEBUG") {
+					filtered = append(filtered, line)
+				}
+			default:
+				filtered = append(filtered, line)
+			}
+		}
+		lines = filtered
+	}
+
+	if format == "json" {
+		w.Header().Set("Content-Type", "application/json")
+		enc := json.NewEncoder(w)
+		for _, line := range lines {
+			enc.Encode(map[string]string{
+				"message":  line,
+				"level":    detectLevel(line),
+				"timestamp": extractTimestamp(line),
+			})
+		}
+	} else {
+		w.Header().Set("Content-Type", "text/plain")
+		for _, line := range lines {
+			fmt.Fprintln(w, line)
+		}
+	}
+	httpRequestsTotal.WithLabelValues(r.Method, "/logs", "200").Inc()
+}
+
+// readLogLines reads the last n lines from the log file, optionally after a timestamp.
+func readLogLines(logPath string, limit int, since int64) ([]string, error) {
+	if _, err := os.Stat(logPath); os.IsNotExist(err) {
+		return []string{}, nil
+	}
+	// Simple implementation: read entire file (suitable for moderate logs)
+	// For large logs, use tail or seek from end.
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		return nil, err
+	}
+	allLines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if since > 0 {
+		filtered := make([]string, 0, len(allLines))
+		for _, line := range allLines {
+			ts := extractTimestampUnix(line)
+			if ts > 0 && ts >= since {
+				filtered = append(filtered, line)
+			}
+		}
+		allLines = filtered
+	}
+	if len(allLines) > limit {
+		allLines = allLines[len(allLines)-limit:]
+	}
+	return allLines, nil
+}
+
+var timestampRegex = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})`)
+
+func extractTimestamp(line string) string {
+	m := timestampRegex.FindStringSubmatch(line)
+	if len(m) > 1 {
+		return m[1]
+	}
+	return ""
+}
+
+func extractTimestampUnix(line string) int64 {
+	m := timestampRegex.FindStringSubmatch(line)
+	if len(m) < 2 {
+		return 0
+	}
+	// Parse "2026-08-28 12:34:56,789"
+	t, err := time.Parse("2006-01-02 15:04:05,000", m[1])
+	if err != nil {
+		return 0
+	}
+	return t.Unix()
+}
+
+func detectLevel(line string) string {
+	upper := strings.ToUpper(line)
+	switch {
+	case strings.Contains(upper, "ERROR"), strings.Contains(upper, "FATAL"), strings.Contains(upper, "CRITICAL"):
+		return "error"
+	case strings.Contains(upper, "WARNING"), strings.Contains(upper, "WARN"):
+		return "warning"
+	case strings.Contains(upper, "DEBUG"):
+		return "debug"
+	case strings.Contains(upper, "INFO"):
+		return "info"
+	default:
+		return "unknown"
+	}
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Odoo Shell (PTY over WebSocket)
+// ══════════════════════════════════════════════════════════════════════
+
+// ShellHandler returns an http.HandlerFunc that upgrades to WebSocket and runs odoo shell.
+func (m *Manager) ShellHandler(inst *instance.Instance, p instance.Paths, py, dbName string) (http.HandlerFunc, error) {
+	session, err := NewShellSession(inst, p, py, dbName)
+	if err != nil {
+		return nil, err
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		_ = session.HandleWS(w, r)
+	}, nil
 }

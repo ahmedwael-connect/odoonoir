@@ -53,6 +53,22 @@ type Instance struct {
 	DataDirPath string   `json:"data_dir_path,omitempty"`
 	LogPath     string   `json:"log_path,omitempty"` // conf logfile
 	PIDPath     string   `json:"pid_path,omitempty"` // conf pidfile
+
+// Backup scheduling
+	BackupScheduleEnabled  bool       `json:"backup_schedule_enabled,omitempty"`
+	BackupScheduleCron     string     `json:"backup_schedule_cron,omitempty"`   // cron expression
+	BackupScheduleDBs      []string   `json:"backup_schedule_dbs,omitempty"`    // databases to backup (empty = all)
+	BackupScheduleRetain   int        `json:"backup_schedule_retain,omitempty"` // number of backups to retain
+	BackupScheduleCompress bool       `json:"backup_schedule_compress,omitempty"` // gzip compress
+	BackupScheduleCustom   bool       `json:"backup_schedule_custom,omitempty"`   // custom format
+	BackupScheduleLastRun  *time.Time `json:"backup_schedule_last_run,omitempty"`
+	BackupScheduleNextRun  *time.Time `json:"backup_schedule_next_run,omitempty"`
+	BackupScheduleID       int        `json:"backup_schedule_id,omitempty"`     // cron entry ID
+
+	// Enterprise integration (Odoo.sh like)
+	EnterprisePath   string `json:"enterprise_path,omitempty"`   // cloned enterprise root (contains enterprise addons)
+	EnterpriseRepo   string `json:"enterprise_repo,omitempty"`   // owner/repo e.g. odoo/enterprise
+	EnterpriseBranch string `json:"enterprise_branch,omitempty"` // branch e.g. 16.0
 }
 
 // Paths resolves the on-disk layout of an instance.

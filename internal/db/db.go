@@ -120,7 +120,7 @@ func (p *PG) EnsureRole(role string, withPassword bool) (bool, error) {
 	}
 	var q string
 	if withPassword {
-		q = "CREATE ROLE " + role + " LOGIN CREATEDB PASSWORD '" + pgEscapeLiteral(role) + "'"
+		q = "CREATE ROLE " + role + " LOGIN CREATEDB PASSWORD '" + PgEscapeLiteral(role) + "'"
 	} else {
 		q = "CREATE ROLE " + role + " LOGIN CREATEDB"
 	}
@@ -400,7 +400,7 @@ func (p *PG) RenameDatabase(oldName, newName string) error {
 		return fmt.Errorf("database %s does not exist", oldName)
 	}
 	term := exec.Command("psql", "-d", "postgres", "-tAc",
-		"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '"+pgEscapeLiteral(oldName)+"' AND pid <> pg_backend_pid()")
+		"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '"+PgEscapeLiteral(oldName)+"' AND pid <> pg_backend_pid()")
 	term.Env = p.pgEnv()
 	if out, err := term.CombinedOutput(); err != nil {
 		return fmt.Errorf("terminate connections to %s: %w\n%s", oldName, err, strings.TrimSpace(string(out)))
@@ -421,8 +421,8 @@ func dbIdentValid(name string) error {
 	return nil
 }
 
-// pgEscapeLiteral escapes a string for use as a SQL literal (single-quote safe).
-func pgEscapeLiteral(s string) string {
+// PgEscapeLiteral escapes a string for use as a SQL literal (single-quote safe).
+func PgEscapeLiteral(s string) string {
 	return strings.ReplaceAll(s, "'", "''")
 }
 

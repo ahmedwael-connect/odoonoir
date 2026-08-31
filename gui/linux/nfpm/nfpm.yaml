@@ -4,7 +4,7 @@
 name: odoonoir
 arch: ${GOARCH}
 platform: "linux"
-version: "0.5.0"
+version: "0.16.1"
 section: "utils"
 priority: "optional"
 maintainer: "Ahmed <ahmed@users.noreply.github.com>"

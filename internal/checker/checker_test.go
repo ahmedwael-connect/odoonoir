@@ -3,14 +3,10 @@ package checker
 import "testing"
 
 func TestPythonCompatRanges(t *testing.T) {
-	if _, ok := PythonCompat["17"]; !ok {
-		t.Fatal("17 missing")
-	}
-	if _, ok := PythonCompat["18"]; !ok {
-		t.Fatal("18 missing")
-	}
-	if _, ok := PythonCompat["19"]; !ok {
-		t.Fatal("19 missing")
+	for _, v := range []string{"16", "17", "18", "19"} {
+		if _, ok := PythonCompat[v]; !ok {
+			t.Fatalf("%s missing", v)
+		}
 	}
 	for v, pys := range PythonCompat {
 		if len(pys) == 0 {

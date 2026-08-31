@@ -16,6 +16,7 @@ import type {
 } from "../bindings/github.com/ahmed/odoonoir/internal/service/models";
 import { useToast } from "./App";
 import { ConfirmModal } from "./ConfirmModal";
+import { Button } from "./components/atoms/Button";
 
 /* ── Modules Screen ──────────────────────────────────────────────── */
 
@@ -114,9 +115,9 @@ export function ModulesScreen({
                 {filtered.length} match{filtered.length !== 1 ? "es" : ""}
               </span>
             )}
-            <button className="btn" onClick={load} disabled={loading}>
+            <Button variant="outline" size="sm" onClick={load} disabled={loading} loading={loading}>
               Refresh
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -156,13 +157,14 @@ export function ModulesScreen({
                   <td>{m.version || "—"}</td>
                   <td>
                     {m.installed && (
-                      <button
-                        className="btn danger small"
-                        disabled={uninstalling === m.name}
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        loading={uninstalling === m.name}
                         onClick={() => setConfirmTarget(m)}
                       >
-                        {uninstalling === m.name ? "Removing…" : "Uninstall"}
-                      </button>
+                        Uninstall
+                      </Button>
                     )}
                   </td>
                 </tr>
@@ -300,13 +302,14 @@ export function AdoptScreen({ onAdopted }: { onAdopted: () => void }) {
               <option value="19">19.0</option>
             </select>
           </div>
-          <button
-            className="btn primary"
+          <Button
+            variant="primary"
+            loading={busy}
             disabled={busy || !name.trim()}
             onClick={handleAdopt}
           >
-            {busy ? "Adopting…" : "Adopt Instance"}
-          </button>
+            Adopt Instance
+          </Button>
 
           {result && (
             <div className="success">
@@ -367,9 +370,9 @@ export function DoctorScreen({ name }: { name: string }) {
               </span>
             )}
           </h2>
-          <button className="btn" onClick={load} disabled={loading}>
+          <Button variant="outline" size="sm" onClick={load} disabled={loading} loading={loading}>
             Refresh
-          </button>
+          </Button>
         </div>
 
         {loading ? (

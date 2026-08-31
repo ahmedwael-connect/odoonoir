@@ -319,7 +319,7 @@ restarted serving that database instead.`,
 // newProcFor builds a process manager for an instance using global config.
 func newProcFor(inst *instance.Instance) *proc.Manager {
 	p := inst.ResolvePaths(instRoot(inst))
-	return proc.New(p, installer.PythonFor(inst, p), p.Conf)
+	return proc.New(p, installer.PythonFor(inst, p), p.Conf, inst.LongpollPort)
 }
 
 // registryPortFree verifies that no OTHER registered instance uses the given

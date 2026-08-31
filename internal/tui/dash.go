@@ -208,7 +208,7 @@ func refreshStatuses(d Deps) tea.Cmd {
 		pids := map[string]int{}
 		for _, inst := range insts {
 			p := inst.ResolvePaths(instRoot(d, inst))
-			mgr := proc.New(p, installer.PythonFor(inst, p), p.Conf)
+			mgr := proc.New(p, installer.PythonFor(inst, p), p.Conf, inst.LongpollPort)
 			st, pid, err := mgr.Status()
 			if err != nil {
 				continue
@@ -378,13 +378,13 @@ func runAction(d Deps, inst *instance.Instance, op string) tea.Cmd {
 		var err error
 		switch op {
 		case "start":
-			mgr := proc.New(p, installer.PythonFor(inst, p), p.Conf)
+			mgr := proc.New(p, installer.PythonFor(inst, p), p.Conf, inst.LongpollPort)
 			err = mgr.Start("")
 		case "stop":
-			mgr := proc.New(p, installer.PythonFor(inst, p), p.Conf)
+			mgr := proc.New(p, installer.PythonFor(inst, p), p.Conf, inst.LongpollPort)
 			err = mgr.Stop()
 		case "restart":
-			mgr := proc.New(p, installer.PythonFor(inst, p), p.Conf)
+			mgr := proc.New(p, installer.PythonFor(inst, p), p.Conf, inst.LongpollPort)
 			err = mgr.Restart()
 		case "backup":
 			pg := db.New(d.Cfg)

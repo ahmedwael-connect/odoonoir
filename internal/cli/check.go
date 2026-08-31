@@ -12,7 +12,7 @@ import (
 func newCheckCmd() *cobra.Command {
 	var version string
 	cmd := &cobra.Command{
-		Use:   "check [-v 17|18|19]",
+		Use:   "check [-v 16|17|18|19]",
 		Short: "Audit the system for Odoo requirements",
 		Long: `Audits the host system: python, node, git, postgres, system libraries.
 Pass -v <major> to also enforce python version compatibility with that Odoo release.
@@ -59,7 +59,7 @@ summary of what is missing and how to fix it.`,
 			return nil
 		},
 	}
-	cmd.Flags().StringVarP(&version, "version", "v", "", "check python compatibility against an Odoo major version (17, 18, 19)")
+	cmd.Flags().StringVarP(&version, "version", "v", "", "check python compatibility against an Odoo major version (16, 17, 18, 19)")
 	return cmd
 }
 

@@ -87,6 +87,10 @@ func Run(ctx context.Context, cfg *config.Config, inst *instance.Instance, opts 
 
 	emit(StepStart, 2, "")
 	py := installer.PythonFor(inst, p)
+	reqFile := filepath.Join(p.Source, "requirements.txt")
+	if err := installer.PatchRequirements(reqFile, inst.Version, func(l string) { emit(Line, 2, l) }); err != nil {
+		return fmt.Errorf("patch requirements: %w", err)
+	}
 	if err := pipInstall(ctx, py, p.Source, func(l string) { emit(Line, 2, l) }); err != nil {
 		return fmt.Errorf("pip install: %w", err)
 	}

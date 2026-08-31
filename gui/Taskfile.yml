@@ -1,6 +1,15 @@
 version: '3'
 
 tasks:
+  build:
+    desc: Build the desktop app (used by wails3 dev)
+    deps:
+      - task: build:frontend
+        vars:
+          DEV: "{{.DEV}}"
+    cmds:
+      - echo "build:frontend done for DEV={{.DEV}}"
+
   go:mod:tidy:
     summary: Runs `go mod tidy`
     internal: true

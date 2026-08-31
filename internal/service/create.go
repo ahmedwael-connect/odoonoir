@@ -18,7 +18,7 @@ import (
 // (db user "odoo", db password = user, port auto-detection...).
 type CreateOptions struct {
 	Name        string
-	Version     string // "18", "19", ...
+	Version     string // "16", "17", "18", "19"
 	GitRef      string
 	Source      string // git URL
 	Python      string
@@ -62,7 +62,15 @@ func (s *Service) Create(ctx context.Context, opts CreateOptions, emit Sink) (*C
 	}
 	major := strings.Split(opts.Version, ".")[0]
 	if major == "" {
-		return nil, fmt.Errorf("version is required (e.g. 18, 19)")
+		return nil, fmt.Errorf("version is required (e.g. 16, 17, 18, 19)")
+	}
+	// Pre-flight: verify a compatible Python is available before starting install.
+	pyBin := opts.Python
+	if pyBin == "" {
+		pyBin = installer.ResolvePython(opts.Version)
+	}
+	if err := installer.CheckPythonCompat(pyBin, opts.Version); err != nil {
+		return nil, err
 	}
 	instPath := s.cfg.InstancePath(opts.Name)
 	if opts.Root != "" {

@@ -7,6 +7,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // Issue is a detected problem in the instance log.
@@ -236,4 +237,168 @@ func Format(issues []Issue) []string {
 		out = append(out, "      log: "+strings.TrimSpace(it.Line))
 	}
 	return out
+}
+
+// SearchOptions configures log search.
+type SearchOptions struct {
+	Query   string // search query
+	Regex   bool   // treat query as regex
+	Level   string // error, warning, info, debug
+	Since   int64  // unix timestamp filter
+	Limit   int    // max results
+}
+
+// SearchResult represents a matched log line with context.
+type SearchResult struct {
+	LineNo    int      `json:"lineNo"`
+	Timestamp string   `json:"timestamp"`
+	Level     string   `json:"level"`
+	Message   string   `json:"message"`
+	Context   []string `json:"context,omitempty"` // ±2 lines
+}
+
+// Search searches the log file with the given options.
+func Search(logPath string, opts SearchOptions) ([]SearchResult, error) {
+	f, err := os.Open(logPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []SearchResult{}, nil
+		}
+		return nil, err
+	}
+	defer f.Close()
+
+	var allLines []string
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 1024*1024), 1024*1024)
+	lineNo := 0
+	for sc.Scan() {
+		lineNo++
+		allLines = append(allLines, sc.Text())
+	}
+	if err := sc.Err(); err != nil {
+		return nil, err
+	}
+
+	var re *regexp.Regexp
+	if opts.Query != "" {
+		if opts.Regex {
+			re, err = regexp.Compile(opts.Query)
+			if err != nil {
+				return nil, fmt.Errorf("invalid regex: %w", err)
+			}
+		} else {
+			// Escape for literal search
+			var err error
+			re, err = regexp.Compile(regexp.QuoteMeta(opts.Query))
+			if err != nil {
+				return nil, fmt.Errorf("invalid regex: %w", err)
+			}
+		}
+	}
+
+	levelFilter := strings.ToLower(opts.Level)
+
+	results := make([]SearchResult, 0, opts.Limit)
+	for i, line := range allLines {
+		lineNo := i + 1
+
+		// Filter by timestamp
+		if opts.Since > 0 {
+			ts := extractTimestampUnix(line)
+			if ts > 0 && ts < opts.Since {
+				continue
+			}
+		}
+
+		// Filter by level
+		if levelFilter != "" {
+			if !matchesLevel(line, levelFilter) {
+				continue
+			}
+		}
+
+		// Filter by query/regex
+		if re != nil {
+			if !re.MatchString(line) {
+				continue
+			}
+		}
+
+		// Build context (±2 lines)
+		ctx := make([]string, 0, 5)
+		for j := max(0, i-2); j <= min(len(allLines)-1, i+2); j++ {
+			if j != i {
+				ctx = append(ctx, allLines[j])
+			}
+		}
+
+		results = append(results, SearchResult{
+			LineNo:    lineNo,
+			Timestamp: extractTimestamp(line),
+			Level:     detectLevel(line),
+			Message:   line,
+			Context:   ctx,
+		})
+
+		if opts.Limit > 0 && len(results) >= opts.Limit {
+			break
+		}
+	}
+
+	return results, nil
+}
+
+var timestampRegex = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})`)
+
+func extractTimestamp(line string) string {
+	m := timestampRegex.FindStringSubmatch(line)
+	if len(m) > 1 {
+		return m[1]
+	}
+	return ""
+}
+
+func extractTimestampUnix(line string) int64 {
+	m := timestampRegex.FindStringSubmatch(line)
+	if len(m) < 2 {
+		return 0
+	}
+	t, err := time.Parse("2006-01-02 15:04:05,000", m[1])
+	if err != nil {
+		return 0
+	}
+	return t.Unix()
+}
+
+func detectLevel(line string) string {
+	upper := strings.ToUpper(line)
+	switch {
+	case strings.Contains(upper, "ERROR"), strings.Contains(upper, "FATAL"), strings.Contains(upper, "CRITICAL"):
+		return "error"
+	case strings.Contains(upper, "WARNING"), strings.Contains(upper, "WARN"):
+		return "warning"
+	case strings.Contains(upper, "DEBUG"):
+		return "debug"
+	case strings.Contains(upper, "INFO"):
+		return "info"
+	default:
+		return "unknown"
+	}
+}
+
+func matchesLevel(line, level string) bool {
+	upper := strings.ToUpper(line)
+	switch level {
+	case "error":
+		return strings.Contains(upper, "ERROR") || strings.Contains(upper, "FATAL") || strings.Contains(upper, "CRITICAL")
+	case "warning", "warn":
+		return strings.Contains(upper, "WARNING") || strings.Contains(upper, "WARN")
+	case "info":
+		return strings.Contains(upper, "INFO")
+	case "debug":
+		return strings.Contains(upper, "DEBUG")
+	default:
+		return true
+	}
 }

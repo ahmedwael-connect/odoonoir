@@ -4,6 +4,27 @@ import { ErrorBoundary } from "./ErrorBoundary";
 import { ConfirmModal } from "./ConfirmModal";
 import { SkeletonLines, SkeletonTable } from "./Skeleton";
 import { ModulesScreen, AdoptScreen, DoctorScreen } from "./Screens";
+import { TerminalScreen } from "./screens/TerminalScreen";
+import { CronScreen } from "./screens/CronScreen";
+import { RecordsScreen } from "./screens/RecordsScreen";
+import { DepGraphScreen } from "./screens/DepGraphScreen";
+import { ScaffoldScreen } from "./screens/ScaffoldScreen";
+import { CloneScreen } from "./screens/CloneScreen";
+import { ModelInspectorScreen } from "./screens/ModelInspectorScreen";
+import { BackupsScreen } from "./screens/BackupsScreen";
+import { SystemCheckScreen } from "./screens/SystemCheckScreen";
+import { MarketplaceScreen } from "./screens/MarketplaceScreen";
+import { DashboardScreen } from "./screens/DashboardScreen";
+import { EnterpriseWizard } from "./components/enterprise/EnterpriseWizard";
+import { AddonPathManagerWizard } from "./components/manager/AddonPathManagerWizard";
+import { InstanceLift } from "./components/organisms/InstanceLift";
+import { InstanceTopNav } from "./components/organisms/InstanceTopNav";
+import { AppHeader } from "./components/organisms/AppHeader";
+import { AppShell } from "./layouts/AppShell";
+import { useInstanceNav, instanceNavTabs, moreInstanceTabs } from "./hooks/useInstanceNav";
+import type { Screen } from "./hooks/useInstanceNav";
+import { Button } from "./components/atoms/Button";
+import { Play, Square, RotateCw, HardDrive, ScrollText, Settings2, RefreshCw, Package, Stethoscope, Trash2, Code2, Building2, Folder } from "lucide-react";
 import {
   Instances,
   Status,
@@ -31,8 +52,6 @@ import type {
 import type {
   ConfEntry,
 } from "../bindings/github.com/ahmed/odoonoir/gui/models";
-
-type Screen = "instances" | "databases" | "logs" | "update" | "create" | "settings" | "adopt" | "modules" | "doctor";
 
 /* ── Toast System ───────────────────────────────────────────────────── */
 
@@ -143,9 +162,9 @@ const EVT_STEP_START = 1;
 const EVT_STEP_DONE = 2;
 const EVT_STEP_FAIL = 3;
 
-/* ── Sidebar Instance Item (memoized) ────────────────────────────────── */
-
-const SidebarItem = React.memo(function SidebarItem({
+/* ── Sidebar Instance Item (deprecated — replaced by InstanceLift) ── */
+// kept for reference, not used in AppShell
+const _SidebarItem = React.memo(function SidebarItem({
   inst,
   selected,
   running,
@@ -219,7 +238,7 @@ export default function App() {
   const [instances, setInstances] = useState<InstanceView[]>([]);
   const [statuses, setStatuses] = useState<Record<string, StatusView>>({});
   const [selected, setSelected] = useState<string | null>(null);
-  const [screen, setScreen] = useState<Screen>("instances");
+  const [screen, setScreen] = useState<Screen>("overview");
   const [eventLog, setEventLog] = useState<{ msg: string; ts: number; kind?: string }[]>([]);
   const eventLogRef = useRef<{ msg: string; ts: number; kind?: string }[]>([]);
   const eventLogTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -227,15 +246,20 @@ export default function App() {
   const [confirm, setConfirm] = useState<{ title: string; message: string; danger?: boolean; onConfirm: () => void } | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [eventLogOpen, setEventLogOpen] = useState(true);
+  const [liftFilter, setLiftFilter] = useState("");
+  const [enterpriseOpen, setEnterpriseOpen] = useState(false);
+  const [addonsOpen, setAddonsOpen] = useState(false);
+  // keep hook for side-effect (auto-redirect global/instance)
+  useInstanceNav(selected, screen, setScreen);
 
   /* Refresh full instance list + all statuses in parallel */
   const refresh = useCallback(async () => {
     try {
       const list = await Instances();
-      setInstances(list);
-      const results = await Promise.allSettled(list.map((inst) => Status(inst.name)));
+      setInstances(list as InstanceView[]);
+      const results = await Promise.allSettled((list as InstanceView[]).map((inst: InstanceView) => Status(inst.name)));
       const map: Record<string, StatusView> = {};
-      list.forEach((inst, i) => {
+      (list as InstanceView[]).forEach((inst: InstanceView, i: number) => {
         const r = results[i];
         if (r.status === "fulfilled") map[inst.name] = r.value;
       });
@@ -352,7 +376,7 @@ export default function App() {
 
       if (key === "Escape") {
         setSelected(null);
-        setScreen("instances");
+        setScreen("overview");
       } else if (key === "r" && selected && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
         act(selected, "restart");
@@ -361,17 +385,18 @@ export default function App() {
         const running = statuses[selected]?.Instance?.status === "running";
         act(selected, running ? "stop" : "start");
       } else if (key >= "1" && key <= "9" && !e.metaKey && !e.ctrlKey) {
-        const screens: Screen[] = ["instances", "databases", "logs", "update", "settings", "modules", "create", "adopt", "doctor"];
+        const allTabs: Screen[] = [...instanceNavTabs.map((t) => t.id), ...moreInstanceTabs.map((t) => t.id)];
         const idx = parseInt(key) - 1;
-        if (idx < screens.length) {
-          setScreen(screens[idx]);
+        if (idx < allTabs.length) {
+          const target = allTabs[idx];
+          setScreen(target);
           if (!selected && instances.length > 0) setSelected(instances[0].name);
         }
       } else if (key === "c" && !e.metaKey && !e.ctrlKey) {
         setScreen("create");
         setSelected(null);
       } else if (key === "?") {
-        setScreen("instances");
+        setScreen("overview");
       }
     };
     window.addEventListener("keydown", handler);
@@ -379,117 +404,78 @@ export default function App() {
   }, [selected, statuses, act, instances]);
 
   const selectedInst = selected ? statuses[selected] : null;
+  const effectiveScreen: Screen = screen
 
   return (
     <ErrorBoundary>
-      <div className="shell">
-        <header className="topbar">
-          <h1>Odoonoir</h1>
-          <span className="topbar-sub">
-            {instances.length} instance{instances.length !== 1 ? "s" : ""}
-          </span>
-          <span className="topbar-hints">
-            <kbd>1</kbd>-<kbd>9</kbd> screens <kbd>r</kbd> restart <kbd>s</kbd> start/stop <kbd>c</kbd> create <kbd>Esc</kbd> back
-          </span>
-        </header>
-
-        <div className="layout">
-          {/* Sidebar */}
-          <aside className={`sidebar ${sidebarOpen ? "" : "collapsed"}`} role="navigation" aria-label="Instance navigation">
-            <button
-              className="sidebar-toggle"
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-              aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
-            >
-              {sidebarOpen ? "◀" : "▶"}
-            </button>
-            <div className="sidebar-section">
-              <div className="sidebar-heading">Instances</div>
-              {initialLoading ? (
-                <SkeletonLines count={3} widths={["w80", "w60", "w80"]} />
-              ) : instances.map((inst) => (
-                <SidebarItem
-                  key={inst.name}
-                  inst={inst}
-                  selected={selected === inst.name}
-                  running={statuses[inst.name]?.Instance?.status === "running"}
-                  isBusy={busy === inst.name}
-                  onSelect={(n) => { setSelected(n); setScreen("instances"); }}
-                  onAct={act}
-                />
-              ))}
-              {!initialLoading && instances.length === 0 && (
-                <div className="sidebar-empty">No instances yet</div>
-              )}
-            </div>
-
-            {/* Screens — always visible */}
-            <div className="sidebar-section">
-              <div className="sidebar-heading">Screens</div>
-              {instances.length === 0 ? (
-                <>
-                  <button
-                    className={`sidebar-item ${screen === "create" ? "active" : ""}`}
-                    onClick={() => setScreen("create")}
-                  >
-                    Create…
-                  </button>
-                  <button
-                    className={`sidebar-item ${screen === "adopt" ? "active" : ""}`}
-                    onClick={() => setScreen("adopt")}
-                  >
-                    Adopt…
-                  </button>
-                </>
-              ) : (
-                (["instances", "databases", "modules", "logs", "update", "settings", "create", "adopt", "doctor"] as Screen[]).map(
-                  (s) => (
-                    <button
-                      key={s}
-                      className={`sidebar-item ${screen === s ? "active" : ""}`}
-                      onClick={() => setScreen(s)}
-                      aria-current={screen === s ? "page" : undefined}
-                    >
-                      {s === "instances" && "Info"}
-                      {s === "databases" && "Databases"}
-                      {s === "modules" && "Modules"}
-                      {s === "logs" && "Logs"}
-                      {s === "update" && "Update"}
-                      {s === "settings" && "Config"}
-                      {s === "create" && "Create…"}
-                      {s === "adopt" && "Adopt…"}
-                      {s === "doctor" && "Doctor"}
-                    </button>
-                  )
-                )
-              )}
-            </div>
-          </aside>
-
-          {/* Main content */}
-          <main className="main" role="main" aria-label="Instance details">
-            {!selected && screen !== "create" && screen !== "adopt" && (
+      <AppShell
+        header={
+          <AppHeader
+            instanceCount={instances.length}
+            eventCount={eventLog.length}
+            onToggleLift={() => setSidebarOpen(!sidebarOpen)}
+            onOpenPalette={() => {
+              const el = document.querySelector<HTMLInputElement>('[placeholder="Filter instances…"]')
+              el?.focus()
+              toast("Press ⌘K for palette (coming soon)", "info")
+            }}
+            onToggleEventLog={() => setEventLogOpen(!eventLogOpen)}
+          />
+        }
+        lift={
+          <InstanceLift
+            instances={instances}
+            statuses={statuses}
+            selected={selected}
+            busy={busy}
+            initialLoading={initialLoading}
+            collapsed={!sidebarOpen}
+            onToggle={() => setSidebarOpen(!sidebarOpen)}
+            onSelect={(n) => { setSelected(n); setScreen("overview" as Screen) }}
+            onAct={act}
+            filter={liftFilter}
+            setFilter={setLiftFilter}
+            onCreate={() => setScreen("create")}
+          />
+        }
+        topnav={
+          selected && selectedInst ? (
+            <InstanceTopNav
+              selected={selected}
+              status={selectedInst}
+              screen={effectiveScreen}
+              setScreen={setScreen}
+              busy={busy}
+              onAct={act}
+              onRemove={handleRemove}
+              onConfirm={setConfirm}
+              onEnterprise={()=>setEnterpriseOpen(true)}
+              onAddons={()=>setAddonsOpen(true)}
+            />
+          ) : null
+        }
+        main={
+          <div className="min-w-0">
+            {!selected && screen !== "create" && screen !== "adopt" && screen !== "systemcheck" && screen !== "marketplace" && screen !== "dashboard" && (
               <div className="empty">
                 <div className="empty-icon">⚡</div>
                 <div className="empty-title">Odoonoir</div>
                 <div className="empty-desc">
                   {instances.length === 0
                     ? "Create your first Odoo instance or adopt an existing installation."
-                    : "Select an instance from the sidebar to get started."
-                  }
+                    : "Select an instance from the lift to see its navigation on top."}
                 </div>
                 <div className="action-row" style={{ justifyContent: "center" }}>
-                  <button className="btn primary" onClick={() => setScreen("create")}>
+                  <Button variant="primary" onClick={() => setScreen("create")}>
                     Create Instance
-                  </button>
-                  <button className="btn" onClick={() => setScreen("adopt")}>
-                    Adopt Existing
-                  </button>
+                  </Button>
+                  <Button variant="outline" onClick={() => setScreen("adopt")}>Adopt Existing</Button>
+                  <Button variant="ghost" onClick={() => setScreen("marketplace")}>Marketplace</Button>
                 </div>
               </div>
             )}
 
-            {selected && screen === "instances" && selectedInst && (
+            {(selected && effectiveScreen === "overview" && selectedInst && (
               <InstanceDetail
                 name={selected}
                 status={selectedInst}
@@ -499,10 +485,12 @@ export default function App() {
                 onNavigate={setScreen}
                 onRemove={handleRemove}
                 onConfirm={setConfirm}
+                onAddons={()=>setAddonsOpen(true)}
+                onEnterprise={()=>setEnterpriseOpen(true)}
               />
-            )}
+            )) as any}
 
-            {selected && screen === "databases" && (
+            {selected && effectiveScreen === "databases" && (
               <DatabasesScreen
                 name={selected}
                 status={selectedInst}
@@ -518,23 +506,17 @@ export default function App() {
               />
             )}
 
-            {selected && screen === "logs" && (
-              <LogsScreen name={selected} />
-            )}
+            {selected && effectiveScreen === "logs" && <LogsScreen name={selected} />}
 
-            {selected && screen === "update" && (
-              <UpdateScreen
-                name={selected}
-                busy={busy}
-                onUpdate={handleUpdate}
-              />
+            {selected && effectiveScreen === "update" && (
+              <UpdateScreen name={selected} busy={busy} onUpdate={handleUpdate} />
             )}
 
             {screen === "create" && (
               <CreateScreen
                 onCreated={async () => {
                   await refresh();
-                  setScreen("instances");
+                  setScreen("overview");
                 }}
               />
             )}
@@ -543,73 +525,78 @@ export default function App() {
               <AdoptScreen
                 onAdopted={async () => {
                   await refresh();
-                  setScreen("instances");
+                  setScreen("overview");
                 }}
               />
             )}
 
-            {selected && screen === "settings" && (
-              <SettingsScreen name={selected} />
-            )}
+            {selected && effectiveScreen === "config" && <SettingsScreen name={selected} onAddons={()=>setAddonsOpen(true)} />}
 
-            {selected && screen === "modules" && (
-              <ModulesScreen name={selected} toast={toast} />
-            )}
+            {selected && effectiveScreen === "modules" && <ModulesScreen name={selected} toast={toast} />}
 
-            {selected && screen === "doctor" && (
-              <DoctorScreen name={selected} />
-            )}
-          </main>
+            {selected && effectiveScreen === "doctor" && <DoctorScreen name={selected} />}
 
-          {/* Event log strip */}
+            {selected && effectiveScreen === "terminal" && <TerminalScreen name={selected} />}
+            {selected && effectiveScreen === "cron" && <CronScreen name={selected} />}
+            {selected && effectiveScreen === "records" && <RecordsScreen name={selected} />}
+            {selected && effectiveScreen === "depgraph" && <DepGraphScreen name={selected} />}
+            {selected && effectiveScreen === "scaffold" && <ScaffoldScreen name={selected} />}
+            {selected && effectiveScreen === "clone" && <CloneScreen name={selected} onCloned={async () => { await refresh(); setScreen("overview") }} />}
+            {selected && effectiveScreen === "modelinspector" && <ModelInspectorScreen name={selected} />}
+            {selected && effectiveScreen === "backups" && <BackupsScreen name={selected} />}
+            {screen === "systemcheck" && <SystemCheckScreen />}
+            {screen === "dashboard" && <DashboardScreen />}
+            {screen === "marketplace" && <MarketplaceScreen />}
+          </div>
+        }
+        eventLog={
           <div className={`event-log ${eventLogOpen ? "" : "collapsed"}`} role="log" aria-label="Event log">
             <div className="event-log-heading">
               Events
               <div className="action-row">
-                <button
-                  className="btn tiny"
+                <Button
+                  variant="ghost"
+                  size="sm"
                   onClick={() => setEventLogOpen(!eventLogOpen)}
                   aria-label={eventLogOpen ? "Collapse event log" : "Expand event log"}
                 >
                   {eventLogOpen ? "◀" : "▶"}
-                </button>
-                <button
-                  className="btn tiny"
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
                   onClick={() => setEventLog([])}
                   title="Clear"
                   aria-label="Clear events"
                 >
                   Clear
-                </button>
+                </Button>
               </div>
             </div>
             <div className="event-log-lines">
-              {eventLog.length === 0 && (
-                <div className="event-log-empty">No events yet</div>
-              )}
+              {eventLog.length === 0 && <div className="event-log-empty">No events yet</div>}
               {eventLog.slice(-80).map((entry, i) => (
                 <div key={`${entry.ts}-${i}`} className={`event-log-line ${entry.kind === "error" ? "event-error" : entry.kind === "success" ? "event-success" : ""}`}>
-                  <span className="event-log-time">
-                    {new Date(entry.ts).toLocaleTimeString()}
-                  </span>
+                  <span className="event-log-time">{new Date(entry.ts).toLocaleTimeString()}</span>
                   {entry.msg}
                 </div>
               ))}
             </div>
           </div>
-        </div>
+        }
+      />
 
-        {/* Global confirm modal */}
-        <ConfirmModal
-          open={!!confirm}
-          title={confirm?.title ?? ""}
-          message={confirm?.message ?? ""}
-          danger={confirm?.danger}
-          confirmLabel={confirm?.danger ? "Remove" : "Confirm"}
-          onConfirm={() => { confirm?.onConfirm(); setConfirm(null); }}
-          onCancel={() => setConfirm(null)}
-        />
-      </div>
+      <ConfirmModal
+        open={!!confirm}
+        title={confirm?.title ?? ""}
+        message={confirm?.message ?? ""}
+        danger={confirm?.danger}
+        confirmLabel={confirm?.danger ? "Remove" : "Confirm"}
+        onConfirm={() => { confirm?.onConfirm(); setConfirm(null); }}
+        onCancel={() => setConfirm(null)}
+      />
+      {selected && <EnterpriseWizard name={selected} open={enterpriseOpen} onOpenChange={setEnterpriseOpen} onDone={refresh} />}
+      {selected && <AddonPathManagerWizard name={selected} open={addonsOpen} onOpenChange={setAddonsOpen} />}
     </ErrorBoundary>
   );
 }
@@ -627,6 +614,8 @@ function InstanceDetail({
   onNavigate,
   onRemove,
   onConfirm,
+  onAddons,
+  onEnterprise,
 }: {
   name: string;
   status: StatusView;
@@ -636,13 +625,16 @@ function InstanceDetail({
   onNavigate: (s: Screen) => void;
   onRemove: (n: string, keepData: boolean) => void;
   onConfirm: (c: { title: string; message: string; danger?: boolean; onConfirm: () => void }) => void;
+  onAddons?: () => void;
+  onEnterprise?: () => void;
 }) {
+  const { toast } = useToast();
   const inst = status.Instance;
   const running = status.Instance?.status === "running";
   const [dbList, setDbList] = useState<string[]>([]);
 
   useEffect(() => {
-    Databases(name).then((list) => setDbList(list.map((d) => d.name))).catch(() => {});
+    Databases(name).then((list: DatabaseView[]) => setDbList(list.map((d: DatabaseView) => d.name))).catch(() => {});
   }, [name]);
 
   return (
@@ -725,29 +717,17 @@ function InstanceDetail({
             <div className="action-row">
               {running ? (
                 <>
-                  <button
-                    className="btn primary"
-                    disabled={busy === name}
-                    onClick={() => onAct(name, "restart")}
-                  >
-                    ↻ Restart
-                  </button>
-                  <button
-                    className="btn danger"
-                    disabled={busy === name}
-                    onClick={() => onAct(name, "stop")}
-                  >
-                    ■ Stop
-                  </button>
+                  <Button variant="secondary" loading={busy === name} iconLeft={<RotateCw className="h-4 w-4" />} onClick={() => onAct(name, "restart")}>
+                    Restart
+                  </Button>
+                  <Button variant="destructive" loading={busy === name} iconLeft={<Square className="h-4 w-4" />} onClick={() => onAct(name, "stop")}>
+                    Stop
+                  </Button>
                 </>
               ) : (
-                <button
-                  className="btn primary"
-                  disabled={busy === name}
-                  onClick={() => onAct(name, "start")}
-                >
-                  ▶ Start
-                </button>
+                <Button variant="primary" loading={busy === name} iconLeft={<Play className="h-4 w-4" />} onClick={() => onAct(name, "start")}>
+                  Start
+                </Button>
               )}
             </div>
           </div>
@@ -755,37 +735,44 @@ function InstanceDetail({
           <div className="action-card">
             <div className="action-card-title">Database</div>
             <div className="action-row">
-              <button
-                className="btn"
-                disabled={busy === name}
-                onClick={() => onBackup(name, inst.dbName)}
-              >
+              <Button variant="secondary" loading={busy === name} iconLeft={<HardDrive className="h-4 w-4" />} onClick={() => onBackup(name, inst.dbName)}>
                 Backup
-              </button>
-              <button className="btn" onClick={() => onNavigate("databases")}>
-                Manage →
-              </button>
+              </Button>
+              <Button variant="outline" iconRight={<span>→</span>} onClick={() => onNavigate("databases")}>
+                Manage
+              </Button>
             </div>
           </div>
 
           <div className="action-card">
             <div className="action-card-title">Operations</div>
-            <div className="action-row">
-              <button className="btn" onClick={() => onNavigate("logs")}>View Logs</button>
-              <button className="btn" onClick={() => onNavigate("settings")}>Edit Config</button>
-              <button className="btn" onClick={() => onNavigate("update")}>Update</button>
-              <button className="btn" onClick={() => onNavigate("modules")}>Modules</button>
-              <button className="btn" onClick={() => onNavigate("doctor")}>Diagnose</button>
+            <div className="action-row flex-wrap">
+              <Button variant="ghost" size="sm" iconLeft={<ScrollText className="h-4 w-4" />} onClick={() => onNavigate("logs")}>Logs</Button>
+              <Button variant="ghost" size="sm" iconLeft={<Settings2 className="h-4 w-4" />} onClick={() => onNavigate("config")}>Config</Button>
+              <Button variant="ghost" size="sm" iconLeft={<RefreshCw className="h-4 w-4" />} onClick={() => onNavigate("update")}>Update</Button>
+              <Button variant="ghost" size="sm" iconLeft={<Package className="h-4 w-4" />} onClick={() => onNavigate("modules")}>Modules</Button>
+              <Button variant="ghost" size="sm" iconLeft={<Stethoscope className="h-4 w-4" />} onClick={() => onNavigate("doctor")}>Diagnose</Button>
+              <Button variant="secondary" size="sm" iconLeft={<Folder className="h-4 w-4" />} onClick={()=>onAddons?.()}>Addons Path</Button>
+              <Button variant="ghost" size="sm" iconLeft={<Code2 className="h-4 w-4" />} onClick={async()=>{
+                try{
+                  const { OpenInVSCode } = await import("../bindings/github.com/ahmed/odoonoir/gui/app");
+                  const out = await OpenInVSCode(name, "");
+                  toast(`Opened ${out}`, "success");
+                }catch(e){ toast(String(e), "error"); }
+              }}>Code</Button>
+              <Button variant="ghost" size="sm" iconLeft={<Building2 className="h-4 w-4" />} onClick={()=>onEnterprise?.()}>Enterprise</Button>
             </div>
           </div>
 
-          <div className="action-card">
-            <div className="action-card-title">Danger Zone</div>
+          <div className="action-card border-destructive/20 bg-destructive/5">
+            <div className="action-card-title text-destructive">Danger Zone</div>
             <div className="action-row">
-              <button className="btn" onClick={() => onNavigate("adopt")}>Adopt Existing</button>
-              <button
-                className="btn danger"
-                disabled={busy === name}
+              <Button variant="outline" size="sm" onClick={() => onNavigate("adopt")}>Adopt Existing</Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                loading={busy === name}
+                iconLeft={<Trash2 className="h-4 w-4" />}
                 onClick={() => onConfirm({
                   title: `Remove "${name}"?`,
                   message: "This deletes all files and the primary database. This cannot be undone.",
@@ -793,8 +780,8 @@ function InstanceDetail({
                   onConfirm: () => onRemove(name, false),
                 })}
               >
-                Remove Instance
-              </button>
+                Remove
+              </Button>
             </div>
           </div>
         </div>
@@ -857,12 +844,12 @@ function DatabasesScreen({
         <div className="card-header">
           <h2>Databases</h2>
           <div className="action-row">
-            <button className="btn" onClick={loadDbs} disabled={loading}>
+            <Button variant="outline" size="sm" onClick={loadDbs} disabled={loading} loading={loading}>
               Refresh
-            </button>
-            <button className="btn" onClick={() => setShowRestore(!showRestore)}>
+            </Button>
+            <Button variant="secondary" size="sm" onClick={() => setShowRestore(!showRestore)}>
               Restore…
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -895,9 +882,10 @@ function DatabasesScreen({
               />
               Force (drop existing)
             </label>
-            <button
-              className="btn primary"
+            <Button
+              variant="primary"
               disabled={!restoreDump || !restoreTarget.trim() || busy === name}
+              loading={busy === name}
               onClick={async () => {
                 await onRestore(name, restoreTarget, restoreDump, restoreForce);
                 setShowRestore(false);
@@ -908,7 +896,7 @@ function DatabasesScreen({
               }}
             >
               Restore
-            </button>
+            </Button>
           </div>
         )}
 
@@ -938,25 +926,31 @@ function DatabasesScreen({
                   <td>
                     <div className="row-actions">
                       {!db.initialized && (
-                        <button
-                          className="btn small"
+                        <Button
+                          variant="secondary"
+                          size="sm"
                           disabled={busy === name}
+                          loading={busy === name}
                           onClick={() => onInit(name, db.name)}
                         >
                           Init
-                        </button>
+                        </Button>
                       )}
-                      <button
-                        className="btn small"
+                      <Button
+                        variant="outline"
+                        size="sm"
                         disabled={busy === name}
+                        loading={busy === name}
                         onClick={() => onBackup(name, db.name)}
                       >
                         Backup
-                      </button>
+                      </Button>
                       {db.name !== (status?.Serving ?? "") && (
-                        <button
-                          className="btn small success"
+                        <Button
+                          variant="success"
+                          size="sm"
                           disabled={busy === name}
+                          loading={busy === name}
                           onClick={() => onConfirm({
                             title: `Switch to "${db.name}"?`,
                             message: "This will restart the instance to serve this database.",
@@ -964,12 +958,14 @@ function DatabasesScreen({
                           })}
                         >
                           Serve
-                        </button>
+                        </Button>
                       )}
                       {!db.primary && (
-                        <button
-                          className="btn small danger"
+                        <Button
+                          variant="destructive"
+                          size="sm"
                           disabled={busy === name}
+                          loading={busy === name}
                           onClick={() => onConfirm({
                             title: `Drop "${db.name}"?`,
                             message: "This cannot be undone.",
@@ -978,7 +974,7 @@ function DatabasesScreen({
                           })}
                         >
                           Drop
-                        </button>
+                        </Button>
                       )}
                     </div>
                   </td>
@@ -1076,7 +1072,7 @@ function LogsScreen({ name }: { name: string }) {
               />
               Follow
             </label>
-            <button className="btn" onClick={() => setLines([])}>Clear</button>
+            <Button variant="ghost" size="sm" onClick={() => setLines([])}>Clear</Button>
           </div>
         </div>
         <div
@@ -1185,9 +1181,9 @@ function UpdateScreen({
               onChange={(e) => setUpdateMods(e.target.value)}
             />
           </div>
-          <button
-            className="btn primary"
-            disabled={busy === name}
+          <Button
+            variant="primary"
+            loading={busy === name}
             onClick={() => {
               setProgress([]);
               const install = installMods.split(",").map((s) => s.trim()).filter(Boolean);
@@ -1195,12 +1191,8 @@ function UpdateScreen({
               onUpdate(name, install, update);
             }}
           >
-            {busy === name ? (
-              <><span className="spinner" /> Running…</>
-            ) : (
-              "Run Update"
-            )}
-          </button>
+            Run Update
+          </Button>
         </div>
       </div>
 
@@ -1321,6 +1313,7 @@ function CreateScreen({ onCreated }: { onCreated: () => void }) {
           <div className="field">
             <span className="field-label">Version *</span>
             <select className="field-input" value={version} onChange={(e) => setVersion(e.target.value)} disabled={creating}>
+              <option value="16">16.0</option>
               <option value="17">17.0</option>
               <option value="18">18.0</option>
               <option value="19">19.0</option>
@@ -1342,13 +1335,14 @@ function CreateScreen({ onCreated }: { onCreated: () => void }) {
             <span className="field-label">DB Name (default: same as instance)</span>
             <input className="field-input" placeholder="e.g. myapp_db" value={dbName} onChange={(e) => setDbName(e.target.value)} disabled={creating} />
           </div>
-          <button
-            className="btn primary"
+          <Button
+            variant="primary"
+            loading={creating}
             disabled={creating || !name.trim() || !version.trim()}
             onClick={handleCreate}
           >
-            {creating ? <><span className="spinner" /> Creating…</> : "Create Instance"}
-          </button>
+            Create Instance
+          </Button>
 
           {steps.length > 0 && (
             <div className="create-steps">
@@ -1370,7 +1364,7 @@ function CreateScreen({ onCreated }: { onCreated: () => void }) {
    Settings / Config Screen
    ═══════════════════════════════════════════════════════════════════════ */
 
-function SettingsScreen({ name }: { name: string }) {
+function SettingsScreen({ name, onAddons }: { name: string; onAddons?: () => void }) {
   const { toast } = useToast();
   const [entries, setEntries] = useState<ConfEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1418,17 +1412,20 @@ function SettingsScreen({ name }: { name: string }) {
         <div className="card-header">
           <h2>Config — {name}</h2>
           <div className="action-row">
+            {onAddons && <Button variant="secondary" size="sm" iconLeft={<Folder className="h-4 w-4" />} onClick={onAddons}>Addons Path</Button>}
             {Object.keys(edits).length > 0 && (
               <span className="search-count">{Object.keys(edits).length} unsaved</span>
             )}
-            <button className="btn" onClick={loadConf} disabled={loading}>Refresh</button>
-            <button
-              className="btn primary"
+            <Button variant="outline" size="sm" onClick={loadConf} disabled={loading} loading={loading}>Refresh</Button>
+            <Button
+              variant="primary"
+              size="sm"
+              loading={saving}
               disabled={saving || Object.keys(edits).length === 0}
               onClick={handleSave}
             >
-              {saving ? <><span className="spinner" /> Saving…</> : "Save"}
-            </button>
+              Save
+            </Button>
           </div>
         </div>
 
@@ -1454,8 +1451,9 @@ function SettingsScreen({ name }: { name: string }) {
                 />
                 {!e.active && <span className="pill commented">off</span>}
                 {edits[e.key] !== undefined && (
-                  <button
-                    className="btn tiny"
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     title="Revert to original"
                     onClick={() =>
                       setEdits((prev) => {
@@ -1466,7 +1464,7 @@ function SettingsScreen({ name }: { name: string }) {
                     }
                   >
                     ↩
-                  </button>
+                  </Button>
                 )}
               </div>
             ))}

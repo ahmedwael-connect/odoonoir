@@ -123,7 +123,7 @@ the instance automatically when done.`,
 // restartInstance stops and starts the instance through its proc manager.
 func restartInstance(inst *instance.Instance) error {
 	p := inst.ResolvePaths(instRoot(inst))
-	mgr := proc.New(p, installer.PythonFor(inst, p), p.Conf)
+	mgr := proc.New(p, installer.PythonFor(inst, p), p.Conf, inst.LongpollPort)
 	if err := mgr.Restart(); err != nil {
 		return err
 	}

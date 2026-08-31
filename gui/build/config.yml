@@ -5,7 +5,7 @@ info:
   productName: "OdooNoir"
   productIdentifier: "com.ahmed.odoonoir"
   description: "Odoo instance manager — create, manage and monitor Odoo installations"
-  version: "0.5.0"
+  version: "0.16.1"
   copyright: "© 2026 Ahmed"
   author:
     name: "Ahmed"
@@ -45,8 +45,6 @@ dev_mode:
       - "*.ts"
     git_ignore: true
   executes:
-    - cmd: wails3 build DEV=true
-      type: blocking
     - cmd: npm run dev
       type: background
       dir: frontend

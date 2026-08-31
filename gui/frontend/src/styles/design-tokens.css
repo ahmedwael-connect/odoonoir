@@ -1,0 +1,448 @@
+/* Design System Tokens - OdooNoir v0.11 Polaris */
+
+@layer base {
+  :root {
+    /* ============================================
+       BRAND COLORS
+       ============================================ */
+    --brand-50: #f0fdf4;
+    --brand-100: #dcfce7;
+    --brand-200: #bbf7d0;
+    --brand-300: #86efac;
+    --brand-400: #4ade80;
+    --brand-500: #22c55e;
+    --brand-600: #16a34a;
+    --brand-700: #15803d;
+    --brand-800: #166534;
+    --brand-900: #14532d;
+    --brand-950: #052e16;
+
+    /* ============================================
+       NEUTRAL COLORS (Dark-first)
+       ============================================ */
+    --neutral-0: #ffffff;
+    --neutral-50: #fafafa;
+    --neutral-100: #f5f5f5;
+    --neutral-200: #e5e5e5;
+    --neutral-300: #d4d4d4;
+    --neutral-400: #a3a3a3;
+    --neutral-400: #a3a3a3;
+    --neutral-500: #737373;
+    --neutral-600: #525252;
+    --neutral-700: #404040;
+    --neutral-800: #262626;
+    --neutral-900: #171717;
+    --neutral-950: #0a0a0a;
+
+    /* ============================================
+       SEMANTIC COLOR ALIASES (Dark Mode Default)
+       ============================================ */
+    /* Background */
+    --background: #0a0c10;
+    --background-elevated: #111318;
+    --background-hover: #1a1d24;
+    --background-active: #1a2332;
+
+    /* Foreground (Text) */
+    --foreground: #e0e0e0;
+    --foreground-muted: #a0a8b8;
+    --foreground-dim: #6b7280;
+    --foreground-subtle: #4b5563;
+
+    /* Border */
+    --border: #1e2128;
+    --border-soft: #2a2e38;
+    --border-focus: #3b82f6;
+    --border-muted: #2a2e38;
+
+    /* Primary (Brand Green) */
+    --primary: #34d399;
+    --primary-hover: #60a5fa;
+    --primary-bg: #064e3b;
+    --primary-bg-hover: #065f46;
+    --primary-border: #065f46;
+    --primary-foreground: #052e16;
+
+    /* Secondary */
+    --secondary: #2a2e38;
+    --secondary-hover: #3b3f4a;
+    --secondary-bg: #1e2128;
+    --secondary-foreground: #e0e0e0;
+
+    /* Destructive (Red) */
+    --destructive: #fca5a5;
+    --destructive-hover: #fecaca;
+    --destructive-bg: #450a0a;
+    --destructive-bg-hover: #2d1215;
+    --destructive-border: #7f1d1d;
+    --destructive-border-hover: #991b1b;
+    --destructive-foreground: #fef2f2;
+
+    /* Success (Green) */
+    --success: #34d399;
+    --success-bg: #064e3b;
+    --success-bg-hover: #065f46;
+    --success-border: #065f46;
+    --success-foreground: #052e16;
+
+    /* Warning (Amber) */
+    --warning: #fbbf24;
+    --warning-bg: #443300;
+    --warning-border: #854d0e;
+    --warning-foreground: #fde68a;
+
+    /* Info (Blue) */
+    --info: #60a5fa;
+    --info-bg: #1e3a5f;
+    --info-border: #3b82f6;
+    --info-foreground: #eff6ff;
+
+    /* Muted */
+    --muted: #1e2128;
+    --muted-foreground: #6b7280;
+
+    /* Accent */
+    --accent: #1e2332;
+    --accent-hover: #2a2e38;
+    --accent-foreground: #e0e0e0;
+
+    /* Card */
+    --card: #151820;
+    --card-foreground: #e0e0e0;
+    --card-border: #1e2128;
+
+    /* Popover */
+    --popover: #151820;
+    --popover-foreground: #e0e0e0;
+    --popover-border: #1e2128;
+
+    /* Input */
+    --input: #1e2128;
+    --input-bg: #0a0c10;
+    --input-foreground: #e0e0e0;
+
+    /* Ring */
+    --ring: #3b82f6;
+
+    /* ============================================
+       TYPOGRAPHY
+       ============================================ */
+    --font-sans: "Inter", "JetBrains Mono", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code", Menlo, monospace;
+
+    --text-xs: 0.6875rem;    /* 11px */
+    --text-sm: 0.8125rem;    /* 13px */
+    --text-base: 0.875rem;   /* 14px */
+    --text-lg: 1rem;         /* 16px */
+    --text-xl: 1.125rem;     /* 18px */
+    --text-2xl: 1.25rem;     /* 20px */
+    --text-3xl: 1.5rem;      /* 24px */
+    --text-4xl: 2rem;        /* 32px */
+
+    --font-weight-normal: 400;
+    --font-weight-medium: 500;
+    --font-weight-semibold: 600;
+    --font-weight-bold: 700;
+
+    --line-height-tight: 1.25;
+    --line-height-normal: 1.5;
+    --line-height-relaxed: 1.75;
+
+    /* ============================================
+       SPACING (4px Grid)
+       ============================================ */
+    --space-0: 0;
+    --space-1: 4px;    /* 0.25rem */
+    --space-2: 8px;    /* 0.5rem */
+    --space-3: 12px;   /* 0.75rem */
+    --space-4: 16px;   /* 1rem */
+    --space-5: 20px;   /* 1.25rem */
+    --space-6: 24px;   /* 1.5rem */
+    --space-8: 32px;   /* 2rem */
+    --space-10: 40px;  /* 2.5rem */
+    --space-12: 48px;  /* 3rem */
+    --space-16: 64px;  /* 4rem */
+    --space-20: 80px;  /* 5rem */
+    --space-24: 96px;  /* 6rem */
+
+    /* ============================================
+       BORDER RADIUS
+       ============================================ */
+    --radius-none: 0;
+    --radius-sm: 4px;
+    --radius-md: 6px;
+    --radius-lg: 8px;
+    --radius-xl: 12px;
+    --radius-2xl: 16px;
+    --radius-3xl: 24px;
+    --radius-4xl: 32px;
+    --radius-bento: 24px;
+    --radius-bento-lg: 32px;
+    --radius-full: 9999px;
+
+    /* ============================================
+       SHADOWS
+       ============================================ */
+    --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.2);
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+    --shadow-xl: 0 16px 48px rgba(0, 0, 0, 0.6);
+    --shadow-2xl: 0 24px 64px rgba(0, 0, 0, 0.7);
+    --shadow-inner: inset 0 2px 4px rgba(0, 0, 0, 0.2);
+
+    /* Colored Shadows */
+    --shadow-primary: 0 4px 16px rgba(52, 211, 153, 0.3);
+    --shadow-destructive: 0 4px 16px rgba(252, 165, 165, 0.3);
+    --shadow-success: 0 4px 16px rgba(52, 211, 153, 0.3);
+
+    /* ============================================
+       TRANSITIONS
+       ============================================ */
+    --ease-linear: linear;
+    --ease-in: cubic-bezier(0.4, 0, 1, 1);
+    --ease-out: cubic-bezier(0, 0, 0.2, 1);
+    --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+    --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
+
+    --duration-instant: 0ms;
+    --duration-fast: 100ms;
+    --duration-normal: 200ms;
+    --duration-slow: 300ms;
+    --duration-slower: 500ms;
+
+    /* ============================================
+       LAYOUT
+       ============================================ */
+    --header-height: 56px;
+    --footer-height: 40px;
+    --sidebar-width: 280px;
+    --sidebar-collapsed: 64px;
+    --sidebar-mobile: 280px;
+    --right-drawer-width: 420px;
+    --container-max: 1400px;
+    --content-max: 1200px;
+
+    /* ============================================
+       BENTO STYLE (v0.16)
+       ============================================ */
+    --bento-gap: 20px;
+    --bento-gap-sm: 12px;
+    --bento-gap-lg: 24px;
+    --bento-radius: 24px;
+    --bento-radius-sm: 16px;
+    --bento-radius-lg: 32px;
+    --bento-radius-xl: 36px;
+    --bento-shadow: 0 8px 24px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.3);
+    --bento-shadow-hover: 0 12px 32px rgba(0, 0, 0, 0.5), 0 4px 12px rgba(0, 0, 0, 0.35);
+    --bento-shadow-inner: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    --bento-border: 1px solid var(--border);
+    --bento-surface: var(--card);
+    --bento-surface-hover: var(--background-elevated);
+
+    /* ============================================
+       Z-INDEX
+       ============================================ */
+    --z-dropdown: 100;
+    --z-sticky: 200;
+    --z-fixed: 300;
+    --z-modal-backdrop: 400;
+    --z-modal: 500;
+    --z-popover: 600;
+    --z-tooltip: 700;
+    --z-toast: 800;
+
+    /* ============================================
+       BREAKPOINTS (for reference in JS)
+       ============================================ */
+    --bp-xs: 480px;
+    --bp-sm: 640px;
+    --bp-md: 768px;
+    --bp-lg: 1024px;
+    --bp-xl: 1280px;
+    --bp-2xl: 1536px;
+  }
+
+  /* ============================================
+     LIGHT MODE
+     ============================================ */
+  .light {
+    /* Background */
+    --background: #ffffff;
+    --background-elevated: #f8fafc;
+    --background-hover: #f1f5f9;
+    --background-active: #e2e8f0;
+
+    /* Foreground (Text) */
+    --foreground: #0f172a;
+    --foreground-muted: #475569;
+    --foreground-dim: #94a3b8;
+    --foreground-subtle: #cbd5e1;
+
+    /* Border */
+    --border: #e2e8f0;
+    --border-soft: #cbd5e1;
+    --border-focus: #2563eb;
+    --border-muted: #cbd5e1;
+
+    /* Primary (Brand Green) */
+    --primary: #16a34a;
+    --primary-hover: #15803d;
+    --primary-bg: #dcfce7;
+    --primary-bg-hover: #bbf7d0;
+    --primary-border: #16a34a;
+    --primary-foreground: #ffffff;
+
+    /* Secondary */
+    --secondary: #f1f5f9;
+    --secondary-hover: #e2e8f0;
+    --secondary-bg: #f8fafc;
+    --secondary-foreground: #0f172a;
+
+    /* Destructive (Red) */
+    --destructive: #ef4444;
+    --destructive-hover: #dc2626;
+    --destructive-bg: #fef2f2;
+    --destructive-bg-hover: #fee2e2;
+    --destructive-border: #ef4444;
+    --destructive-border-hover: #dc2626;
+    --destructive-foreground: #7f1d1d;
+
+    /* Success (Green) */
+    --success: #16a34a;
+    --success-bg: #dcfce7;
+    --success-bg-hover: #bbf7d0;
+    --success-border: #16a34a;
+    --success-foreground: #052e16;
+
+    /* Warning (Amber) */
+    --warning: #ca8a04;
+    --warning-bg: #fef9c3;
+    --warning-border: #ca8a04;
+    --warning-foreground: #713f12;
+
+    /* Info (Blue) */
+    --info: #2563eb;
+    --info-bg: #dbeafe;
+    --info-border: #2563eb;
+    --info-foreground: #eff6ff;
+
+    /* Muted */
+    --muted: #f1f5f9;
+    --muted-foreground: #64748b;
+
+    /* Accent */
+    --accent: #f1f5f9;
+    --accent-hover: #e2e8f0;
+    --accent-foreground: #0f172a.
+
+    /* Card */
+    --card: #ffffff;
+    --card-foreground: #0f172a.
+    --card-border: #e2e8f0.
+
+    /* Popover */
+    --popover: #ffffff.
+    --popover-foreground: #0f172a.
+    --popover-border: #e2e8f0.
+
+    /* Input */
+    --input: #e2e8f0.
+    --input-bg: #ffffff.
+    --input-foreground: #0f172a.
+
+    /* Muted */
+    --muted: #f1f5f9.
+    --muted-foreground: #64748b.
+
+    /* Accent */
+    --accent: #f1f5f9.
+    --accent-hover: #e2e8f0.
+    --accent-foreground: #0f172a.
+  }
+
+  /* ============================================
+     HIGH CONTRAST MODE
+     ============================================ */
+  @media (prefers-contrast: more) {
+    :root, .light {
+      --border: currentColor;
+      --border-soft: currentColor;
+      --border-focus: currentColor;
+      --ring: currentColor;
+    }
+  }
+
+  /* ============================================
+     REDUCED MOTION
+     ============================================ */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  /* ============================================
+     FOCUS VISIBLE
+     ============================================ */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  /* ============================================
+     SELECTION
+     ============================================ */
+  ::selection {
+    background-color: var(--primary);
+    color: var(--primary-foreground);
+  }
+
+  /* ============================================
+     SCROLLBAR
+     ============================================ */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: var(--background);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-soft);
+    border-radius: var(--radius-full);
+    border: 2px solid var(--background);
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--foreground-muted);
+  }
+
+  ::-webkit-scrollbar-corner {
+    background: var(--background);
+  }
+
+  /* Firefox */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-soft) var(--background);
+  }
+}
+
+/* ============================================
+   CSS VARIABLES FOR TAILWIND
+   ============================================ */
+@layer base {
+  :root {
+    --radius: 8px;
+  }
+}

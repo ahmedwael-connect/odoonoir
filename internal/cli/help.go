@@ -134,7 +134,7 @@ func printGroupedHelp(c *cobra.Command) {
 
 	write("")
 	write(theme.Header.Render("odoo noir  —  Odoo instance manager  " + theme.Muted.Render("v"+Version)))
-	write(theme.Muted.Render("install, run and develop Odoo 17/18/19 like a pro"))
+	write(theme.Muted.Render("install, run and develop Odoo 16/17/18/19 like a pro"))
 	write("")
 	write("USAGE")
 	write(theme.Muted.Render("  odoonoir <command> [options]"))
