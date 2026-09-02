@@ -26,19 +26,21 @@ type Version struct {
 
 // Options controls an install run.
 type Options struct {
-	Version    string // "16", "17", "18", "19"
-	Enterprise bool
-	Port       int
-	LongPoll   int
-	DBUser     string
-	DBPass     string
-	DBName     string
-	DevMode    bool              // install dev requirements + set dev_mode conf
-	Workers    int               // odoo worker count
-	LogLevel   string            // debug, info, warning, error
-	GitRef     string            // pin source to a tag/commit instead of the branch
-	Python     string            // python interpreter for the venv
-	Extra      map[string]string // extra odoo.conf key=value pairs
+	Version      string // "16", "17", "18", "19"
+	Enterprise   bool
+	Port         int
+	LongPoll     int
+	DBUser       string
+	DBPass       string
+	DBName       string
+	DBHost       string // postgres host — omit for socket (mirrors db.pgEnv)
+	DBPort       int    // postgres port — omit for default 5432
+	DevMode      bool              // install dev requirements + set dev_mode conf
+	Workers      int               // odoo worker count
+	LogLevel     string            // debug, info, warning, error
+	GitRef       string            // pin source to a tag/commit instead of the branch
+	Python       string            // python interpreter for the venv
+	Extra        map[string]string // extra odoo.conf key=value pairs
 }
 
 // BranchFor maps a major version to its git branch name.
@@ -157,23 +159,82 @@ func installRequirements(ctx context.Context, p instance.Paths, opts Options, st
 		return fmt.Errorf("patch requirements: %w", err)
 	}
 	py := PythonBin(p.Venv)
-	if err := runLive(ctx, stdout, py, "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"); err != nil {
+	major := strings.Split(opts.Version, ".")[0]
+	setuptoolsSpec := setuptoolsSpecFor(major)
+	if err := runLive(ctx, stdout, py, "-m", "pip", "install", "--upgrade", "pip", setuptoolsSpec, "wheel"); err != nil {
 		return fmt.Errorf("pip bootstrap: %w", err)
 	}
 	args := []string{"-m", "pip", "install", "-r", reqFile}
 	if err := runLive(ctx, stdout, py, args...); err != nil {
 		return fmt.Errorf("pip install requirements: %w", err)
 	}
+	if extra := extraPackagesFor(major); len(extra) > 0 {
+		// Use --no-deps to avoid upgrading lxml from 5.4.0 to 6.x (lxml_html_clean 0.4.5 requires lxml>=6.1.1)
+		args := append([]string{"-m", "pip", "install", "--no-deps"}, extra...)
+		if err := runLive(ctx, stdout, py, args...); err != nil {
+			return fmt.Errorf("pip install extra packages: %w", err)
+		}
+	}
+	if major == "15" || major == "16" || major == "17" {
+		// lxml 5.4 no longer bundles html.clean; lxml_html_clean 0.2.2 provides either `lxml.html.clean` shim or top-level `lxml_html_clean`
+		script := "import pkg_resources\ntry:\n    from lxml.html import clean\nexcept ImportError:\n    import lxml_html_clean\nfrom OpenSSL import crypto\nprint('ok')"
+		cmd := exec.CommandContext(ctx, py, "-c", script)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("pkg_resources/lxml.html.clean/OpenSSL not importable after pip install — setuptools/lxml/cryptography too new for Odoo %s: %w\n%s", opts.Version, err, strings.TrimSpace(string(out)))
+		}
+	}
 	return nil
+}
+
+func extraPackagesFor(major string) []string {
+	switch major {
+	case "15", "16", "17":
+		// lxml 5.4.0 (patched via versionOverrides) no longer bundles html.clean;
+		// 0.2.x is the last range compatible with lxml 5.x without pulling lxml 6.x.
+		return []string{"lxml_html_clean==0.2.2"}
+	default:
+		return nil
+	}
+}
+
+func setuptoolsSpecFor(major string) string {
+	switch major {
+	case "15", "16", "17":
+		return "setuptools<81"
+	default:
+		return "setuptools"
+	}
 }
 
 // PatchRequirements rewrites known broken pinned versions in requirements.txt
 // for older Odoo versions running on modern Python.
 var versionOverrides = map[string]map[string]string{
+	"15": {
+		"gevent==21.8.0":      "gevent==22.10.2",
+		"greenlet==1.1.2":     "greenlet>=2.0.0",
+		"cryptography==3.4.8": "cryptography==38.0.4",
+		"pyOpenSSL==20.0.1":   "pyOpenSSL==23.2.0",
+		"docutils==0.16":      "docutils>=0.16,<0.21",
+		"Pillow==9.0.1":       "Pillow>=9.4.0,<11",
+		"psycopg2==2.9.2":     "psycopg2>=2.9.5,<3",
+		"lxml==4.6.5":         "lxml>=4.6.5,<6",
+		"MarkupSafe==1.1.1":   "MarkupSafe>=2.0,<3",
+		"Jinja2==2.11.3":      "Jinja2>=2.11.3,<4",
+		"Werkzeug==2.0.2":     "Werkzeug>=2.0.2,<3",
+		"psutil==5.8.0":       "psutil>=5.8.0,<6",
+		"reportlab==3.5.59":   "reportlab>=3.5.59,<4",
+		"urllib3==1.26.5":      "urllib3>=1.26.5,<2",
+		"decorator==4.4.2":    "decorator>=4.4.2,<5",
+		"Babel==2.9.1":        "Babel>=2.9.1,<3",
+		"chardet==4.0.0":      "chardet>=4.0.0,<6",
+		"idna==2.10":          "idna>=2.10,<4",
+		"pytz==2021.3":        "pytz>=2021.3,<2025",
+	},
 	"16": {
 		"gevent==21.8.0":      "gevent==22.10.2",
 		"greenlet==1.1.2":     "greenlet>=2.0.0",
-		"cryptography==3.4.8": "cryptography>=3.4.8,<42",
+		"cryptography==3.4.8": "cryptography==38.0.4",
+		"pyOpenSSL==20.0.1":   "pyOpenSSL==23.2.0",
 		"docutils==0.16":      "docutils>=0.16,<0.21",
 		"Pillow==9.0.1":       "Pillow>=9.4.0,<11",
 		"Pillow==9.4.0":       "Pillow>=9.4.0,<11",
@@ -250,8 +311,13 @@ func writeConf(p instance.Paths, inst *instance.Instance, opts Options) error {
 	c := odoconf.New()
 	c.Set("addons_path", strings.Join(BuildAddonsPath(p), ","))
 	c.Set("data_dir", p.DataDir)
-	c.Set("db_host", "localhost")
-	c.Set("db_port", "5432")
+	// Mirror db.pgEnv() logic: omit host/port for default socket case
+	if opts.DBHost != "" && opts.DBHost != "localhost" {
+		c.Set("db_host", opts.DBHost)
+	}
+	if opts.DBPort != 0 && opts.DBPort != 5432 {
+		c.Set("db_port", fmt.Sprint(opts.DBPort))
+	}
 	c.Set("db_user", opts.DBUser)
 	if opts.DBPass != "" {
 		c.Set("db_password", opts.DBPass)
@@ -333,6 +399,10 @@ func ResolvePython(version string) string {
 		}
 	case "16":
 		if py := findPython("python3.11", "python3.10", "python3.9", "python3.8"); py != "" {
+			return py
+		}
+	case "15":
+		if py := findPython("python3.10", "python3.9", "python3.8"); py != "" {
 			return py
 		}
 	default:

@@ -67,6 +67,10 @@ func translatePsqlError(raw string, fallback error) error {
 		return &DBError{Code: DBErrConnRefused, Message: raw, Hint: "postgres not reachable — check systemctl status postgresql and db_host/db_port in odoo.conf vs config", Err: fallback}
 	case strings.Contains(lower, "is not accepting connections"), strings.Contains(lower, "pg_isready"):
 		return &DBError{Code: DBErrServerDown, Message: raw, Hint: "postgres down — sudo systemctl start postgresql", Err: fallback}
+	case strings.Contains(lower, "no pg_hba.conf entry"):
+		return &DBError{Code: DBErrAuth, Message: raw, Hint: "no matching pg_hba.conf rule for this host/user/db — either connect via the Unix socket (don't set db_host in odoo.conf) or add a host line to pg_hba.conf and reload postgres", Err: fallback}
+	case strings.Contains(lower, "column") && strings.Contains(lower, "does not exist"):
+		return &DBError{Code: DBErrUnknown, Message: raw, Hint: "schema mismatch (15/16 vs 17+) — try updating Odoo or checking ir_model_fields columns", Err: fallback}
 	case strings.Contains(lower, "invalid database name"):
 		return &DBError{Code: DBErrInvalidName, Message: raw, Hint: "use lowercase letters, digits, underscores only", Err: fallback}
 	}

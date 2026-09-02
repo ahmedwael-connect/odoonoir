@@ -228,6 +228,7 @@ type ModuleView struct {
 	Shortdesc string `json:"shortdesc"`
 	Author    string `json:"author"`
 	Version   string `json:"version"`
+	Custom    bool   `json:"custom"`
 }
 
 // ModuleList queries ir_module_module for the modules of a database.
@@ -236,13 +237,25 @@ func (s *Service) ModuleList(name, dbName string) ([]ModuleView, error) {
 	if err != nil {
 		return nil, err
 	}
-	if dbName == "" {
-		dbName = inst.DBName
+	if dbName, err = s.ResolveDB(inst, dbName, true); err != nil {
+		return nil, err
 	}
 	query := "SELECT name, state, COALESCE(shortdesc::text, ''), COALESCE(author, ''), COALESCE(latest_version, '') FROM ir_module_module ORDER BY name"
 	out, err := s.pg.Query(dbName, query)
 	if err != nil {
-		return nil, err
+		return nil, s.wrapPsqlErr(dbName, err)
+	}
+	// determine custom modules via disk scan
+	p := inst.ResolvePaths(s.rootFor(inst))
+	addonsPaths := []string{p.Addons}
+	if len(inst.AddonsPaths) > 0 {
+		addonsPaths = inst.AddonsPaths
+	}
+	customSet := map[string]bool{}
+	if diskMods, _ := scanDiskModules(addonsPaths); diskMods != nil {
+		for n := range diskMods {
+			customSet[n] = true
+		}
 	}
 	var modules []ModuleView
 	for _, line := range strings.Split(out, "\n") {
@@ -253,13 +266,15 @@ func (s *Service) ModuleList(name, dbName string) ([]ModuleView, error) {
 		if len(parts) < 2 {
 			continue
 		}
+		nm := parts[0]
 		modules = append(modules, ModuleView{
-			Name:      parts[0],
+			Name:      nm,
 			State:     parts[1],
 			Installed: parts[1] == "installed",
 			Shortdesc: safeIdx(parts, 2),
 			Author:    safeIdx(parts, 3),
 			Version:   safeIdx(parts, 4),
+			Custom:    customSet[nm],
 		})
 	}
 	return modules, nil
@@ -958,15 +973,16 @@ func (s *Service) CronList(name, dbName string) ([]CronEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	if dbName == "" {
-		dbName = inst.DBName
+	dbName, err = s.ResolveDB(inst, dbName, true)
+	if err != nil {
+		return nil, err
 	}
 	query := `SELECT id, name, model, function, args, interval_type, interval_number,
 		nextcall, numbercall, doall, active, priority
 		FROM ir_cron ORDER BY nextcall`
 	out, err := s.pg.Query(dbName, query)
 	if err != nil {
-		return nil, err
+		return nil, s.wrapPsqlErr(dbName, err)
 	}
 
 	var entries []CronEntry

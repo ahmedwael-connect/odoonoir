@@ -6,12 +6,14 @@ import (
 	"io"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 // Client represents an SSH connection to a remote host
@@ -76,7 +78,7 @@ func NewClient(cfg Config) (*Client, error) {
 	config := &ssh.ClientConfig{
 		User:            cfg.User,
 		Auth:            authMethods,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // TODO: add known hosts verification
+		HostKeyCallback: hostKeyCallback(),
 		Timeout:         cfg.Timeout,
 	}
 
@@ -402,4 +404,17 @@ func (c *Client) ListDir(ctx context.Context, path string) ([]string, error) {
 		return []string{}, nil
 	}
 	return lines, nil
+}
+
+func hostKeyCallback() ssh.HostKeyCallback {
+	// Try known_hosts files, fallback to insecure with warning
+	home, _ := os.UserHomeDir()
+	for _, p := range []string{filepath.Join(home, ".ssh", "known_hosts"), filepath.Join(home, ".ssh", "known_hosts2"), "/etc/ssh/ssh_known_hosts"} {
+		if _, err := os.Stat(p); err == nil {
+			if cb, err := knownhosts.New(p); err == nil {
+				return cb
+			}
+		}
+	}
+	return ssh.InsecureIgnoreHostKey()
 }

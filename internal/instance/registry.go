@@ -69,6 +69,10 @@ type Instance struct {
 	EnterprisePath   string `json:"enterprise_path,omitempty"`   // cloned enterprise root (contains enterprise addons)
 	EnterpriseRepo   string `json:"enterprise_repo,omitempty"`   // owner/repo e.g. odoo/enterprise
 	EnterpriseBranch string `json:"enterprise_branch,omitempty"` // branch e.g. 16.0
+
+	// Auto-update on run: modules to -u on every start
+	AutoUpdateModules []string `json:"auto_update_modules,omitempty"`
+	AutoUpdateOnRun   bool     `json:"auto_update_on_run,omitempty"`
 }
 
 // Paths resolves the on-disk layout of an instance.

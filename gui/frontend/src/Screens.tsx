@@ -32,6 +32,7 @@ export function ModulesScreen({
   const [dbName, setDbName] = useState("");
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [customOnly, setCustomOnly] = useState(false);
   const [uninstalling, setUninstalling] = useState<string | null>(null);
   const [confirmTarget, setConfirmTarget] = useState<ModuleView | null>(null);
 
@@ -55,7 +56,7 @@ export function ModulesScreen({
     load();
   }, [load]);
 
-  const filtered = search
+  let filtered = search
     ? modules.filter(
         (m) =>
           m.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -63,6 +64,7 @@ export function ModulesScreen({
           m.author.toLowerCase().includes(search.toLowerCase())
       )
     : modules;
+  if (customOnly) filtered = filtered.filter((m) => (m as any).custom);
 
   const installed = modules.filter((m) => m.installed).length;
 
@@ -110,6 +112,7 @@ export function ModulesScreen({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
+            <label className="flex items-center gap-1 text-xs cursor-pointer"><input type="checkbox" checked={customOnly} onChange={e=>setCustomOnly(e.target.checked)} /> Custom only</label>
             {search && (
               <span className="search-count">
                 {filtered.length} match{filtered.length !== 1 ? "es" : ""}

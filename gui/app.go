@@ -243,7 +243,7 @@ func (a *App) CheckVersion(version string) []checker.Result {
 }
 
 // ScaffoldModule generates a complete Odoo module tree from a declarative definition.
-func (a *App) ScaffoldModule(name, displayName, summary, author, license_, version, category, addonsDir string, depends []string, models []odoomod.Model, menus, wizard, tests bool) error {
+func (a *App) ScaffoldModule(name, displayName, summary, author, license_, version, category, addonsDir string, depends []string, models []odoomod.Model, menus, wizard, tests, controllers, demo, security bool) error {
 	m := &odoomod.Module{
 		Name:        name,
 		DisplayName: displayName,
@@ -257,6 +257,9 @@ func (a *App) ScaffoldModule(name, displayName, summary, author, license_, versi
 		Menus:       menus,
 		Wizard:      wizard,
 		Tests:       tests,
+		Controllers: controllers,
+		DemoData:    demo,
+		Security:    security,
 		AddonsDir:   addonsDir,
 	}
 	return odoomod.Scaffold(m)
@@ -541,6 +544,18 @@ func (a *App) ToggleAddonPath(name, path string, enable bool) ([]service.AddonPa
 }
 func (a *App) MoveAddonPath(name string, from, to int) ([]service.AddonPathEntry, error) {
 	return a.svc.MoveAddonPath(name, from, to)
+}
+
+func (a *App) SudoAptInstall(password string, pkgs []string) (string, error) {
+	return a.svc.SudoAptInstall(password, pkgs)
+}
+
+func (a *App) GetAutoUpdate(name string) (*service.AutoUpdateConfig, error) {
+	return a.svc.GetAutoUpdate(name)
+}
+
+func (a *App) SetAutoUpdate(name string, modules []string, enabled bool) error {
+	return a.svc.SetAutoUpdate(name, modules, enabled)
 }
 
 // emit forwards service events to the frontend as Wails "event" messages.

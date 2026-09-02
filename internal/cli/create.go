@@ -119,14 +119,14 @@ addons directory and database name.`,
 				return fmt.Errorf("instance %q already exists", opts.Name)
 			}
 			if opts.Version == "" {
-				return fmt.Errorf("select an Odoo version with -v (16, 17, 18 or 19)")
+				return fmt.Errorf("select an Odoo version with -v (15, 16, 17, 18 or 19)")
 			}
 			if !strings.Contains(opts.Version, ".") {
 				opts.Version += ".0"
 			}
 			major := strings.Split(opts.Version, ".")[0]
 			if _, ok := checker.PythonCompat[major]; !ok {
-				return fmt.Errorf("unsupported Odoo version %q (supported: 16, 17, 18, 19)", major)
+				return fmt.Errorf("unsupported Odoo version %q (supported: 15, 16, 17, 18, 19)", major)
 			}
 
 			if !flagNoCheck {
@@ -245,7 +245,7 @@ addons directory and database name.`,
 			return startInstance(inst)
 		},
 	}
-	cmd.Flags().StringVarP(&opts.Version, "version", "v", "", "Odoo major version to install (16, 17, 18, 19)")
+	cmd.Flags().StringVarP(&opts.Version, "version", "v", "", "Odoo major version to install (15, 16, 17, 18, 19)")
 	cmd.Flags().IntVarP(&opts.Port, "port", "p", 0, "HTTP port (default: first free port from 8069)")
 	cmd.Flags().StringVar(&opts.Root, "root", "", "storage location for this instance (tracked in the registry)")
 	cmd.Flags().StringVar(&opts.DBUser, "db-user", "", "postgres role for odoo (default: odoo)")
@@ -281,6 +281,7 @@ func runCreateWizard(opts *createOpts) error {
 		huh.NewOption("Odoo 18 (stable)", "18.0"),
 		huh.NewOption("Odoo 17 (LTS)", "17.0"),
 		huh.NewOption("Odoo 16 (legacy)", "16.0"),
+		huh.NewOption("Odoo 15 (legacy)", "15.0"),
 	}
 	groupBasics := huh.NewGroup(
 		huh.NewInput().

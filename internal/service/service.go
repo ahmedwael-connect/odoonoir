@@ -13,6 +13,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+
+	"github.com/ahmed/odoonoir/internal/sudo"
 	"sort"
 	"strconv"
 	"strings"
@@ -199,6 +201,7 @@ func (s *Service) Status(name string) (StatusView, error) {
 
 // Start launches an instance. db selects the database to serve (empty =
 // primary). emit receives StatusChanged events.
+// If instance has AutoUpdateOnRun set, modules are passed as -u.
 func (s *Service) Start(ctx context.Context, name, dbName string, emit Sink) error {
 	inst, err := s.reg.Get(name)
 	if err != nil {
@@ -212,7 +215,12 @@ func (s *Service) Start(ctx context.Context, name, dbName string, emit Sink) err
 		dbName = inst.DBName
 	}
 	mgr := s.procFor(inst)
-	if err := mgr.Start(dbName); err != nil {
+	var auto []string
+	if inst.AutoUpdateOnRun && len(inst.AutoUpdateModules) > 0 {
+		auto = inst.AutoUpdateModules
+		emit(Event{Kind: LogLine, Instance: name, Message: fmt.Sprintf("auto-update on run: -u %s", strings.Join(auto, ","))})
+	}
+	if err := mgr.StartWithUpdate(dbName, auto); err != nil {
 		return err
 	}
 	if err := waitForStable(ctx, mgr, s.logPath(inst)); err != nil {
@@ -242,6 +250,10 @@ func (s *Service) Restart(ctx context.Context, name, dbName string, emit Sink) e
 		return err
 	}
 	mgr := s.procFor(inst)
+	var auto []string
+	if inst.AutoUpdateOnRun && len(inst.AutoUpdateModules) > 0 {
+		auto = inst.AutoUpdateModules
+	}
 	if dbName != "" {
 		if err := s.requireDB(inst, dbName); err != nil {
 			return err
@@ -249,17 +261,71 @@ func (s *Service) Restart(ctx context.Context, name, dbName string, emit Sink) e
 		if err := mgr.Stop(); err != nil {
 			return err
 		}
-		if err := mgr.Start(dbName); err != nil {
+		if len(auto) > 0 {
+			emit(Event{Kind: LogLine, Instance: name, Message: fmt.Sprintf("auto-update on run: -u %s", strings.Join(auto, ","))})
+			if err := mgr.StartWithUpdate(dbName, auto); err != nil {
+				return err
+			}
+		} else if err := mgr.Start(dbName); err != nil {
 			return err
 		}
-	} else if err := mgr.Restart(); err != nil {
-		return err
+	} else {
+		if len(auto) > 0 {
+			// auto-update requires Stop+Start with -u, not just Restart
+			emit(Event{Kind: LogLine, Instance: name, Message: fmt.Sprintf("auto-update on run: -u %s", strings.Join(auto, ","))})
+			if err := mgr.Stop(); err != nil {
+				return err
+			}
+			// use current serving DB or primary
+			curDB := mgr.ServingDB()
+			if curDB == "" {
+				curDB = inst.DBName
+			}
+			if err := mgr.StartWithUpdate(curDB, auto); err != nil {
+				return err
+			}
+		} else if err := mgr.Restart(); err != nil {
+			return err
+		}
 	}
 	if err := waitForStable(ctx, mgr, s.logPath(inst)); err != nil {
 		return err
 	}
 	emit(Event{Kind: StatusChanged, Instance: name, Message: "instance " + name + " restarted"})
 	return nil
+}
+
+type AutoUpdateConfig struct {
+	Modules []string `json:"modules"`
+	Enabled bool     `json:"enabled"`
+}
+
+// SetAutoUpdate configures modules to -u on every Start/Restart.
+func (s *Service) SetAutoUpdate(name string, modules []string, enabled bool) error {
+	inst, err := s.reg.Get(name)
+	if err != nil {
+		return err
+	}
+	// normalize
+	var norm []string
+	for _, m := range modules {
+		m = strings.TrimSpace(m)
+		if m != "" {
+			norm = append(norm, m)
+		}
+	}
+	inst.AutoUpdateModules = norm
+	inst.AutoUpdateOnRun = enabled && len(norm) > 0
+	return s.reg.Put(inst)
+}
+
+// GetAutoUpdate returns auto-update config.
+func (s *Service) GetAutoUpdate(name string) (*AutoUpdateConfig, error) {
+	inst, err := s.reg.Get(name)
+	if err != nil {
+		return nil, err
+	}
+	return &AutoUpdateConfig{Modules: inst.AutoUpdateModules, Enabled: inst.AutoUpdateOnRun}, nil
 }
 
 // Conf returns the instance's odoo.conf (lossless view/edit).
@@ -1438,4 +1504,31 @@ func (s *Service) OpenInVSCode(name string, editor string) (string, error) {
 		return "", fmt.Errorf("open in %s: %w", bin, err)
 	}
 	return bin + " " + target, nil
+}
+
+// SudoAptInstall installs apt packages using sudo password from wizard.
+func (s *Service) SudoAptInstall(password string, pkgs []string) (string, error) {
+	if strings.TrimSpace(password) == "" {
+		return "", fmt.Errorf("sudo password required")
+	}
+	// basic validation: only allow known apt packages to avoid command injection
+	allowed := map[string]bool{}
+	for _, p := range checkerAptPackages() {
+		allowed[p] = true
+	}
+	// also allow common deps that pip failures suggest
+	for _, p := range []string{"zlib1g-dev", "libz-dev", "python3-dev", "build-essential"} {
+		allowed[p] = true
+	}
+	for _, p := range pkgs {
+		if !allowed[p] && !strings.HasPrefix(p, "python3") && !strings.HasPrefix(p, "lib") {
+			return "", fmt.Errorf("package %q not allowed", p)
+		}
+	}
+	return sudo.AptInstall(password, pkgs...)
+}
+
+// checkerAptPackages returns the list from checker.AptPackages (avoid import cycle).
+func checkerAptPackages() []string {
+	return []string{"build-essential", "python3-dev", "python3-venv", "libpq-dev", "libxml2-dev", "libxslt1-dev", "libldap2-dev", "libsasl2-dev", "libssl-dev", "libjpeg-dev", "libffi-dev", "zlib1g-dev", "liblcms2-dev"}
 }

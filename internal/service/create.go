@@ -62,7 +62,7 @@ func (s *Service) Create(ctx context.Context, opts CreateOptions, emit Sink) (*C
 	}
 	major := strings.Split(opts.Version, ".")[0]
 	if major == "" {
-		return nil, fmt.Errorf("version is required (e.g. 16, 17, 18, 19)")
+		return nil, fmt.Errorf("version is required (e.g. 15, 16, 17, 18, 19)")
 	}
 	// Pre-flight: verify a compatible Python is available before starting install.
 	pyBin := opts.Python
@@ -195,6 +195,8 @@ func (s *Service) Create(ctx context.Context, opts CreateOptions, emit Sink) (*C
 		DBUser:   dbUser,
 		DBPass:   dbPass,
 		DBName:   dbName,
+		DBHost:   s.cfg.PostgresHost,
+		DBPort:   s.cfg.PostgresPort,
 		DevMode:  opts.Dev,
 		Workers:  opts.Workers,
 		LogLevel: opts.LogLevel,
@@ -235,6 +237,10 @@ func (s *Service) Create(ctx context.Context, opts CreateOptions, emit Sink) (*C
 	// ---- database init (optional) ------------------------------------------
 	if opts.InitDB {
 		if err := s.InitDB(ctx, opts.Name, dbName, emit); err != nil {
+			// keep folder/logs/db for inspection — don't auto-delete on init failure (GUI needs logs)
+			folderCreated = false
+			dbCreated = false
+			registered = false
 			return nil, err
 		}
 	}

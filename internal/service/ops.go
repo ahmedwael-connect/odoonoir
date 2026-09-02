@@ -29,6 +29,7 @@ type DatabaseView struct {
 }
 
 // Databases lists the databases served by an instance with live metadata.
+// Efficient: one batch psql for size+owner (2N→1), plus N for IsInitialized (still per-DB due to DB-local catalog).
 func (s *Service) Databases(name string) ([]DatabaseView, error) {
 	inst, err := s.reg.Get(name)
 	if err != nil {
@@ -38,14 +39,20 @@ func (s *Service) Databases(name string) ([]DatabaseView, error) {
 		return nil, err
 	}
 	names := inst.AllDBs()
+	batch, _ := s.pg.BatchDatabaseInfo(names)
 	out := make([]DatabaseView, 0, len(names))
 	for _, n := range names {
 		dv := DatabaseView{Name: n, Primary: n == inst.DBName}
-		if sz, err := s.pg.DatabaseSize(n); err == nil {
-			dv.SizeBytes = sz
-		}
-		if o, err := s.pg.DatabaseOwner(n); err == nil {
-			dv.Owner = o
+		if bi, ok := batch[n]; ok {
+			dv.SizeBytes = bi.Size
+			dv.Owner = bi.Owner
+		} else {
+			if sz, err := s.pg.DatabaseSize(n); err == nil {
+				dv.SizeBytes = sz
+			}
+			if o, err := s.pg.DatabaseOwner(n); err == nil {
+				dv.Owner = o
+			}
 		}
 		if ok, err := s.pg.IsInitialized(n); err == nil {
 			dv.Initialized = ok
@@ -899,14 +906,21 @@ print('OK')
 	return nil
 }
 
-// getModelFields fetches field definitions for a model.
+// getModelFields fetches field definitions for a model (version-safe: 15/16 use relation, 17+ use comodel_name).
 func (s *Service) getModelFields(dbName, model string) ([]RecordField, error) {
-	query := fmt.Sprintf(`SELECT name, ttype, field_description, required, readonly,
+	// Try new schema first (17+), fallback to old (15/16) where column is `relation`
+	queryNew := fmt.Sprintf(`SELECT name, ttype, field_description, required, readonly,
 		relation, relation_table, comodel_name, domain, default, groups, help
 		FROM ir_model_fields WHERE model = '%s' ORDER BY name`, db.PgEscapeLiteral(model))
-	out, err := s.pg.Query(dbName, query)
+	out, err := s.pg.Query(dbName, queryNew)
+	if err != nil && strings.Contains(strings.ToLower(err.Error()), "comodel_name") {
+		queryOld := fmt.Sprintf(`SELECT name, ttype, field_description, required, readonly,
+		relation, relation_table, relation as comodel_name, domain, default, groups, help
+		FROM ir_model_fields WHERE model = '%s' ORDER BY name`, db.PgEscapeLiteral(model))
+		out, err = s.pg.Query(dbName, queryOld)
+	}
 	if err != nil {
-		return nil, err
+		return nil, s.wrapPsqlErr(dbName, err)
 	}
 	var fields []RecordField
 	for _, line := range strings.Split(out, "\n") {

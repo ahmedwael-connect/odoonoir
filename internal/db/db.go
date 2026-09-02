@@ -23,6 +23,20 @@ type PG struct {
 // New creates a PG helper bound to the global config.
 func New(cfg *config.Config) *PG { return &PG{cfg: cfg} }
 
+// pgConnArgs returns -h/-p flags for CLI tools, omitting them for the
+// default localhost:5432 case so callers prefer the Unix socket + peer
+// auth — the same rule pgEnv() applies to PGHOST/PGPORT.
+func (p *PG) pgConnArgs() []string {
+	var args []string
+	if p.cfg.PostgresHost != "" && p.cfg.PostgresHost != "localhost" {
+		args = append(args, "-h", p.cfg.PostgresHost)
+	}
+	if p.cfg.PostgresPort != 0 && p.cfg.PostgresPort != 5432 {
+		args = append(args, "-p", fmt.Sprint(p.cfg.PostgresPort))
+	}
+	return args
+}
+
 // pgEnv builds the environment for psql/createdb/pg_dump calls.
 // Defaults (localhost:5432) are omitted so tools use the unix socket and
 // peer auth; explicit hosts are passed through.
@@ -31,11 +45,14 @@ func (p *PG) pgEnv() []string {
 	if p.cfg.PostgresUser != "" {
 		env = append(env, "PGUSER="+p.cfg.PostgresUser)
 	}
-	if p.cfg.PostgresHost != "" && p.cfg.PostgresHost != "localhost" {
-		env = append(env, "PGHOST="+p.cfg.PostgresHost)
-	}
-	if p.cfg.PostgresPort != 0 && p.cfg.PostgresPort != 5432 {
-		env = append(env, fmt.Sprintf("PGPORT=%d", p.cfg.PostgresPort))
+	args := p.pgConnArgs()
+	for i := 0; i < len(args); i += 2 {
+		if args[i] == "-h" {
+			env = append(env, "PGHOST="+args[i+1])
+		}
+		if args[i] == "-p" {
+			env = append(env, "PGPORT="+args[i+1])
+		}
 	}
 	return env
 }
@@ -60,9 +77,9 @@ func (p *PG) Query(dbname, sql string) (string, error) {
 
 // ServerRunning checks psql responds on the configured host/port.
 func (p *PG) ServerRunning() error {
-	cmd := exec.Command("pg_isready", "-h", p.cfg.PostgresHost, "-p", fmt.Sprint(p.cfg.PostgresPort))
+	cmd := exec.Command("pg_isready", p.pgConnArgs()...)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("postgres is not accepting connections at %s:%d: %s",
+		return fmt.Errorf("postgres is not accepting connections (host=%s port=%d): %s",
 			p.cfg.PostgresHost, p.cfg.PostgresPort, strings.TrimSpace(string(out)))
 	}
 	return nil
@@ -440,6 +457,45 @@ func (p *PG) DatabaseSize(name string) (int64, error) {
 		return 0, fmt.Errorf("parse size: %w", err)
 	}
 	return size, nil
+}
+
+// BatchInfo holds size+owner for one DB.
+type BatchInfo struct {
+	Size  int64
+	Owner string
+}
+
+// BatchDatabaseInfo fetches size+owner for many DBs in one psql round-trip (efficient vs 2N).
+func (p *PG) BatchDatabaseInfo(names []string) (map[string]BatchInfo, error) {
+	if len(names) == 0 {
+		return map[string]BatchInfo{}, nil
+	}
+	// validate and build IN list
+	quoted := make([]string, 0, len(names))
+	for _, n := range names {
+		if err := dbIdentValid(n); err != nil {
+			return nil, err
+		}
+		quoted = append(quoted, "'"+n+"'")
+	}
+	q := "SELECT datname, pg_database_size(datname), pg_get_userbyid(datdba) FROM pg_database WHERE datname IN (" + strings.Join(quoted, ",") + ")"
+	out, err := p.psql("postgres", q)
+	if err != nil {
+		return nil, err
+	}
+	res := make(map[string]BatchInfo, len(names))
+	for _, line := range strings.Split(out, "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "|", 3)
+		if len(parts) != 3 {
+			continue
+		}
+		sz, _ := strconv.ParseInt(parts[1], 10, 64)
+		res[parts[0]] = BatchInfo{Size: sz, Owner: parts[2]}
+	}
+	return res, nil
 }
 
 // ListDatabases returns non-system databases.

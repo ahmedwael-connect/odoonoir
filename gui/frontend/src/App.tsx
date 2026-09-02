@@ -632,9 +632,17 @@ function InstanceDetail({
   const inst = status.Instance;
   const running = status.Instance?.status === "running";
   const [dbList, setDbList] = useState<string[]>([]);
+  const [autoMods, setAutoMods] = useState("");
+  const [autoOn, setAutoOn] = useState(false);
 
   useEffect(() => {
     Databases(name).then((list: DatabaseView[]) => setDbList(list.map((d: DatabaseView) => d.name))).catch(() => {});
+  }, [name]);
+
+  useEffect(() => {
+    import("../bindings/github.com/ahmed/odoonoir/gui/app").then(async m=>{
+      try{ const cfg:any = await m.GetAutoUpdate(name); setAutoMods((cfg.modules||cfg.Modules||[]).join(", ")); setAutoOn(!!(cfg.enabled||cfg.Enabled)) }catch{}
+    })
   }, [name]);
 
   return (
@@ -761,6 +769,24 @@ function InstanceDetail({
                 }catch(e){ toast(String(e), "error"); }
               }}>Code</Button>
               <Button variant="ghost" size="sm" iconLeft={<Building2 className="h-4 w-4" />} onClick={()=>onEnterprise?.()}>Enterprise</Button>
+            </div>
+          </div>
+
+          <div className="action-card">
+            <div className="action-card-title">Update on Run <span className="text-xs font-normal normal-case tracking-normal text-muted-foreground">(-u)</span></div>
+            <div className="space-y-2">
+              <input className="field-input mono" placeholder="my_module, sale_stock (comma)" value={autoMods} onChange={e=>setAutoMods(e.target.value)} />
+              <div className="flex gap-2 items-center">
+                <label className="flex items-center gap-1 text-xs cursor-pointer"><input type="checkbox" checked={autoOn} onChange={e=>setAutoOn(e.target.checked)} /> Enable auto</label>
+                <Button variant="outline" size="sm" onClick={async()=>{
+                  try{
+                    const { SetAutoUpdate } = await import("../bindings/github.com/ahmed/odoonoir/gui/app");
+                    await SetAutoUpdate(name, autoMods.split(",").map(s=>s.trim()).filter(Boolean), autoOn);
+                    toast(`Auto-update ${autoOn?"enabled":"disabled"}${autoMods?": "+autoMods:""}`, "success");
+                  }catch(e){ toast(String(e), "error"); }
+                }}>Save</Button>
+                {autoOn && autoMods && <span className="text-xs text-muted-foreground">→ -u {autoMods} on start</span>}
+              </div>
             </div>
           </div>
 
@@ -1313,6 +1339,7 @@ function CreateScreen({ onCreated }: { onCreated: () => void }) {
           <div className="field">
             <span className="field-label">Version *</span>
             <select className="field-input" value={version} onChange={(e) => setVersion(e.target.value)} disabled={creating}>
+              <option value="15">15.0</option>
               <option value="16">16.0</option>
               <option value="17">17.0</option>
               <option value="18">18.0</option>

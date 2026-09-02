@@ -41,6 +41,9 @@ type Module struct {
 	Menus       bool
 	Wizard      bool
 	Tests       bool
+	Controllers bool
+	DemoData    bool
+	Security    bool // extra security groups + record rules
 	AddonsDir   string // target directory (instance custom_addons)
 }
 
@@ -97,6 +100,12 @@ func Scaffold(m *Module) error {
 	root := filepath.Join(m.AddonsDir, m.Name)
 	dirs := []string{root, filepath.Join(root, "models"), filepath.Join(root, "views"),
 		filepath.Join(root, "security"), filepath.Join(root, "data"), filepath.Join(root, "tests")}
+	if m.Controllers {
+		dirs = append(dirs, filepath.Join(root, "controllers"))
+	}
+	if m.DemoData {
+		dirs = append(dirs, filepath.Join(root, "demo"))
+	}
 	for _, d := range dirs {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return err
@@ -126,6 +135,16 @@ func Scaffold(m *Module) error {
 		files["tests/__init__.py"] = "from . import test_" + m.Name + "\n"
 		files["tests/test_"+m.Name+".py"] = m.testFile()
 	}
+	if m.Controllers {
+		files["controllers/__init__.py"] = "from . import main\n"
+		files["controllers/main.py"] = m.controllersFile()
+	}
+	if m.DemoData {
+		files["demo/demo.xml"] = m.demoFile()
+	}
+	if m.Security {
+		files["security/security.xml"] = m.securityFile()
+	}
 	delete(files, "data/ir.model.access.csv")
 
 	for rel, content := range files {
@@ -148,9 +167,18 @@ func (m *Module) manifest() string {
 	if m.Wizard {
 		data = append(data, "        'views/wizard_views.xml',")
 	}
+	if m.Security {
+		data = append(data, "        'security/security.xml',")
+	}
 	dataStr := ""
 	if len(data) > 0 {
 		dataStr = strings.Join(data, "\n") + "\n"
+	}
+	demoStr := ""
+	if m.DemoData {
+		demoStr = "    'demo': [\n        'demo/demo.xml',\n    ],\n"
+	} else {
+		demoStr = "    'demo': [],\n"
 	}
 	return fmt.Sprintf(`# -*- coding: utf-8 -*-
 {
@@ -163,12 +191,11 @@ func (m *Module) manifest() string {
     'depends': [
         '%s'
     ],
-%s    'demo': [],
-    'installable': True,
+%s%s    'installable': True,
     'application': True,
     'auto_install': False,
 }
-`, m.DisplayName, m.Summary, m.Version, m.Category, m.Author, m.License, depends, dataBlock(dataStr))
+`, m.DisplayName, m.Summary, m.Version, m.Category, m.Author, m.License, depends, dataBlock(dataStr), demoStr)
 }
 
 func dataBlock(data string) string {
@@ -380,6 +407,53 @@ class Test%s(TransactionCase):
         """Creating a record should succeed."""
 %s
 `, ModuleClassName(m.Name), tests)
+}
+
+func (m *Module) controllersFile() string {
+	return fmt.Sprintf(`# -*- coding: utf-8 -*-
+from odoo import http
+from odoo.http import request
+
+
+class %sController(http.Controller):
+
+    @http.route('/%s/hello', auth='public', website=True)
+    def hello(self, **kw):
+        return "Hello from %s"
+`, ModuleClassName(m.Name), m.Name, m.DisplayName)
+}
+
+func (m *Module) demoFile() string {
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0" encoding="utf-8"?>
+<odoo><data noupdate="1">
+`)
+	for _, mod := range m.Models {
+		b.WriteString(fmt.Sprintf(`    <record id="%s_demo_1" model="%s">
+        <field name="name">Demo %s 1</field>
+    </record>
+`, mod.FileName(), mod.Name, mod.Label))
+	}
+	b.WriteString(`</data></odoo>
+`)
+	return b.String()
+}
+
+func (m *Module) securityFile() string {
+	return fmt.Sprintf(`<?xml version="1.0" encoding="utf-8"?>
+<odoo><data>
+    <record id="group_%s_user" model="res.groups">
+        <field name="name">%s User</field>
+        <field name="category_id" ref="base.module_category_hidden"/>
+        <field name="implied_ids" eval="[(4, ref('base.group_user'))]"/>
+    </record>
+    <record id="group_%s_manager" model="res.groups">
+        <field name="name">%s Manager</field>
+        <field name="implied_ids" eval="[(4, ref('group_%s_user'))]"/>
+        <field name="category_id" ref="base.module_category_hidden"/>
+    </record>
+</data></odoo>
+`, m.Name, m.DisplayName, m.Name, m.DisplayName, m.Name)
 }
 
 // FileName converts a model technical name to a snake filename.

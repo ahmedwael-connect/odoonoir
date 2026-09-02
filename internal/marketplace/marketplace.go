@@ -169,9 +169,7 @@ func (s *FileStore) load() error {
 }
 
 func (s *FileStore) save() error {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
+	// caller holds appropriate lock; save is lock-free to avoid RWMutex re-entrancy deadlock
 	modulesPath := filepath.Join(s.basePath, "modules.json")
 	reviewsPath := filepath.Join(s.basePath, "reviews.json")
 

@@ -219,15 +219,31 @@ func runStream(ctx context.Context, cmd *exec.Cmd, dir string, on func(string)) 
 	pw.Close()
 	sc := bufio.NewScanner(pr)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	var tail []string
 	for sc.Scan() {
-		on(sc.Text())
+		line := sc.Text()
+		tail = append(tail, line)
+		if len(tail) > 200 {
+			tail = tail[1:]
+		}
+		on(line)
 	}
 	err = cmd.Wait()
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
 	if err != nil {
+		if len(tail) > 0 {
+			return fmt.Errorf("%w\n%s", err, strings.Join(tail[len(tail)-min(40, len(tail)):], "\n"))
+		}
 		return err
 	}
 	return sc.Err()
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

@@ -15,6 +15,16 @@ export default defineConfig({
   build: {
     outDir: "dist",
     emptyOutDir: true,
+    chunkSizeWarningLimit: 600,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          xterm: ["xterm", "xterm-addon-fit", "xterm-addon-web-links"],
+          d3: ["d3"],
+          radix: ["@radix-ui/react-dialog", "@radix-ui/react-dropdown-menu", "@radix-ui/react-tabs"],
+        },
+      },
+    },
   },
   server: {
     port: 9245,

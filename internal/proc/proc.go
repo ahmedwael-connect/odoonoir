@@ -181,6 +181,10 @@ func portFromArgs(args []string) int {
 // Start launches `odoo [-d db] -c conf` with output appended to the log file.
 // An empty dbName leaves the database selection to the conf's db_name.
 func (m *Manager) Start(dbName string) error {
+	return m.StartWithUpdate(dbName, nil)
+}
+
+func (m *Manager) StartWithUpdate(dbName string, updateModules []string) error {
 	status, pid, err := m.Status()
 	if err != nil {
 		return err
@@ -203,6 +207,9 @@ func (m *Manager) Start(dbName string) error {
 	args := []string{filepath.Join(m.source, "odoo-bin"), "-c", m.conf}
 	if dbName != "" {
 		args = append(args, "-d", dbName)
+	}
+	if len(updateModules) > 0 {
+		args = append(args, "-u", strings.Join(updateModules, ","))
 	}
 	cmd := exec.Command(m.venvPy, args...)
 	cmd.Dir = m.source

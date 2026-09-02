@@ -29,6 +29,7 @@ type Result struct {
 
 // PythonCompat maps Odoo major versions to acceptable Python major.minor prefixes.
 var PythonCompat = map[string][]string{
+	"15": {"3.8", "3.9", "3.10"},
 	"16": {"3.8", "3.9", "3.10", "3.11"},
 	"17": {"3.10", "3.11", "3.12"},
 	"18": {"3.10", "3.11", "3.12", "3.13"},
