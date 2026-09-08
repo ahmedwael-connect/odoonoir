@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ahmed/odoonoir/internal/db"
@@ -84,11 +85,20 @@ func (s *Service) Databases(name string) ([]DatabaseView, error) {
 				dv.Owner = o
 			}
 		}
-		if ok, err := s.pg.IsInitialized(n); err == nil {
-			dv.Initialized = ok
-		}
 		out = append(out, dv)
 	}
+	// IsInitialized must connect per-DB (DB-local catalog) — run concurrently, N→~1 latency
+	var wg sync.WaitGroup
+	for i := range out {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			if ok, err := s.pg.IsInitialized(out[i].Name); err == nil {
+				out[i].Initialized = ok
+			}
+		}(i)
+	}
+	wg.Wait()
 	return out, nil
 }
 

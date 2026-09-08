@@ -358,11 +358,11 @@ func (s *Service) SetPrimaryDatabase(name, dbName string) error {
 	oldPrimary := inst.DBName
 	// Remove new primary from additional list if present
 	inst.RemoveDB(dbName)
-	// Keep old primary as additional if not already
+	inst.DBName = dbName
+	// Keep old primary as additional if not already (set DBName first: AddDB refuses name==DBName)
 	if oldPrimary != "" && oldPrimary != dbName {
 		inst.AddDB(oldPrimary)
 	}
-	inst.DBName = dbName
 	if err := s.reg.Put(inst); err != nil {
 		return err
 	}
