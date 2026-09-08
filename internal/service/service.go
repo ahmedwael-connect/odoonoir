@@ -13,13 +13,17 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-
-	"github.com/ahmed/odoonoir/internal/sudo"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/ahmed/odoonoir/internal/sudo"
+	"github.com/shirou/gopsutil/v3/cpu"
+	"github.com/shirou/gopsutil/v3/disk"
+	"github.com/shirou/gopsutil/v3/mem"
+	"github.com/shirou/gopsutil/v3/process"
 
 	"github.com/ahmed/odoonoir/internal/ci"
 	"github.com/ahmed/odoonoir/internal/config"
@@ -326,6 +330,81 @@ func (s *Service) GetAutoUpdate(name string) (*AutoUpdateConfig, error) {
 		return nil, err
 	}
 	return &AutoUpdateConfig{Modules: inst.AutoUpdateModules, Enabled: inst.AutoUpdateOnRun}, nil
+}
+
+// SetPrimaryDatabase changes the primary DB (DBName) for an instance.
+// It validates dbName is in AllDBs, moves old primary to Databases list, updates odoo.conf db_name.
+func (s *Service) SetPrimaryDatabase(name, dbName string) error {
+	inst, err := s.reg.Get(name)
+	if err != nil {
+		return err
+	}
+	if err := s.requireDB(inst, dbName); err != nil {
+		// allow discovered DBs not yet tracked: check if DB exists and is not tracked elsewhere
+		if exists, _ := s.pg.DatabaseExists(dbName); !exists {
+			return err
+		}
+		// auto-track discovered
+		inst.AddDB(dbName)
+		_ = s.reg.Put(inst)
+		// re-validate
+		if err := s.requireDB(inst, dbName); err != nil {
+			return err
+		}
+	}
+	if dbName == inst.DBName {
+		return nil // already primary
+	}
+	oldPrimary := inst.DBName
+	// Remove new primary from additional list if present
+	inst.RemoveDB(dbName)
+	// Keep old primary as additional if not already
+	if oldPrimary != "" && oldPrimary != dbName {
+		inst.AddDB(oldPrimary)
+	}
+	inst.DBName = dbName
+	if err := s.reg.Put(inst); err != nil {
+		return err
+	}
+	// Update odoo.conf db_name
+	p := inst.ResolvePaths(s.rootFor(inst))
+	conf, err := odoconf.Load(p.Conf)
+	if err == nil {
+		conf.Set("db_name", dbName)
+		_ = conf.Save()
+	}
+	return nil
+}
+
+// TrackDatabase adds an existing discovered DB to the instance's tracked list.
+func (s *Service) TrackDatabase(name, dbName string) error {
+	inst, err := s.reg.Get(name)
+	if err != nil {
+		return err
+	}
+	if err := db.IsValidName(dbName); err != nil {
+		return err
+	}
+	if exists, err := s.pg.DatabaseExists(dbName); err != nil || !exists {
+		return fmt.Errorf("database %q does not exist", dbName)
+	}
+	// check not already tracked by another instance
+	if all, _ := s.reg.All(); all != nil {
+		for _, other := range all {
+			if other.Name == name {
+				continue
+			}
+			for _, d := range other.AllDBs() {
+				if d == dbName {
+					return fmt.Errorf("database %q already tracked by instance %q", dbName, other.Name)
+				}
+			}
+		}
+	}
+	if inst.AddDB(dbName) {
+		return s.reg.Put(inst)
+	}
+	return nil // already tracked
 }
 
 // Conf returns the instance's odoo.conf (lossless view/edit).
@@ -755,6 +834,9 @@ type DashboardMetrics struct {
 	StoppedInstances   int                    `json:"stoppedInstances"`
 	TotalDatabases     int                    `json:"totalDatabases"`
 	TotalSizeBytes     int64                  `json:"totalSizeBytes"`
+	HostCPU            float64                `json:"hostCPU"`
+	HostMemPercent     float64                `json:"hostMemPercent"`
+	HostDiskPercent    float64                `json:"hostDiskPercent"`
 	InstanceMetrics    []InstanceMetric       `json:"instanceMetrics"`
 	Alerts             []DashboardAlert       `json:"alerts"`
 }
@@ -793,6 +875,16 @@ func (s *Service) GetDashboardMetrics() (*DashboardMetrics, error) {
 	var metrics DashboardMetrics
 	metrics.TotalInstances = len(instances)
 	metrics.InstanceMetrics = make([]InstanceMetric, 0, len(instances))
+	// Host live metrics
+	if percents, err := cpu.Percent(0, false); err == nil && len(percents) > 0 {
+		metrics.HostCPU = percents[0]
+	}
+	if vm, err := mem.VirtualMemory(); err == nil {
+		metrics.HostMemPercent = vm.UsedPercent
+	}
+	if du, err := disk.Usage("/"); err == nil {
+		metrics.HostDiskPercent = du.UsedPercent
+	}
 
 	for _, inst := range instances {
 		p := inst.ResolvePaths(s.rootFor(inst))
@@ -833,6 +925,20 @@ func (s *Service) GetDashboardMetrics() (*DashboardMetrics, error) {
 			}
 		}
 
+		// Live CPU/Memory per instance (if running)
+		var cpuPct float64
+		var memMB float64
+		if pid > 0 {
+			if proc, err := process.NewProcess(int32(pid)); err == nil {
+				if pct, err := proc.CPUPercent(); err == nil {
+					cpuPct = pct
+				}
+				if mi, err := proc.MemoryInfo(); err == nil && mi != nil {
+					memMB = float64(mi.RSS) / 1024 / 1024
+				}
+			}
+		}
+
 		// Health score calculation
 		healthScore := 100
 		if !running {
@@ -848,8 +954,18 @@ func (s *Service) GetDashboardMetrics() (*DashboardMetrics, error) {
 		} else if inst.BackupScheduleEnabled {
 			healthScore -= 30
 		}
+		// live thresholds
+		if cpuPct > 80 {
+			healthScore -= 10
+		}
+		if memMB > 800 {
+			healthScore -= 10
+		}
+		if healthScore < 0 {
+			healthScore = 0
+		}
 
-im := InstanceMetric{
+	im := InstanceMetric{
 		Name:        inst.Name,
 		Version:     inst.Version,
 		Status:      string(status),
@@ -857,6 +973,8 @@ im := InstanceMetric{
 		Databases:   dbCount,
 		SizeBytes:   sizeBytes,
 		Uptime:      uptime,
+		CPUPercent:  cpuPct,
+		MemoryMB:    memMB,
 		LastBackup:  inst.BackupScheduleLastRun,
 		NextBackup:  inst.BackupScheduleNextRun,
 		HealthScore: healthScore,
@@ -864,7 +982,16 @@ im := InstanceMetric{
 		metrics.InstanceMetrics = append(metrics.InstanceMetrics, im)
 	}
 
-	// Generate alerts
+	// Generate alerts (live)
+	if metrics.HostCPU > 80 {
+		metrics.Alerts = append(metrics.Alerts, DashboardAlert{Severity: "warning", Instance: "_host", Message: fmt.Sprintf("Host CPU high %.1f%%", metrics.HostCPU), Timestamp: time.Now()})
+	}
+	if metrics.HostMemPercent > 80 {
+		metrics.Alerts = append(metrics.Alerts, DashboardAlert{Severity: "warning", Instance: "_host", Message: fmt.Sprintf("Host memory high %.1f%%", metrics.HostMemPercent), Timestamp: time.Now()})
+	}
+	if metrics.HostDiskPercent > 80 {
+		metrics.Alerts = append(metrics.Alerts, DashboardAlert{Severity: "critical", Instance: "_host", Message: fmt.Sprintf("Host disk high %.1f%%", metrics.HostDiskPercent), Timestamp: time.Now()})
+	}
 	for _, im := range metrics.InstanceMetrics {
 		if im.HealthScore < 30 {
 			metrics.Alerts = append(metrics.Alerts, DashboardAlert{
@@ -880,6 +1007,12 @@ im := InstanceMetric{
 				Message:   fmt.Sprintf("Instance %s needs attention (score: %d)", im.Name, im.HealthScore),
 				Timestamp: time.Now(),
 			})
+		}
+		if im.CPUPercent > 80 {
+			metrics.Alerts = append(metrics.Alerts, DashboardAlert{Severity: "warning", Instance: im.Name, Message: fmt.Sprintf("CPU high %.1f%%", im.CPUPercent), Timestamp: time.Now()})
+		}
+		if im.MemoryMB > 800 {
+			metrics.Alerts = append(metrics.Alerts, DashboardAlert{Severity: "warning", Instance: im.Name, Message: fmt.Sprintf("Memory high %.0f MB", im.MemoryMB), Timestamp: time.Now()})
 		}
 		// Check for no recent backup
 		if im.LastBackup != nil && time.Since(*im.LastBackup) > 24*time.Hour {
@@ -1531,4 +1664,58 @@ func (s *Service) SudoAptInstall(password string, pkgs []string) (string, error)
 // checkerAptPackages returns the list from checker.AptPackages (avoid import cycle).
 func checkerAptPackages() []string {
 	return []string{"build-essential", "python3-dev", "python3-venv", "libpq-dev", "libxml2-dev", "libxslt1-dev", "libldap2-dev", "libsasl2-dev", "libssl-dev", "libjpeg-dev", "libffi-dev", "zlib1g-dev", "liblcms2-dev"}
+}
+
+// ShellCheck validates python/odoo-bin/conf/db for shell.
+func (s *Service) ShellCheck(name, dbName string) (string, error) {
+	inst, err := s.reg.Get(name)
+	if err != nil {
+		return "", err
+	}
+	p := inst.ResolvePaths(s.rootFor(inst))
+	py := installer.PythonFor(inst, p)
+	// check db
+	if dbName != "" {
+		if err := s.requireDB(inst, dbName); err != nil {
+			return "", err
+		}
+	} else if inst.DBName != "" {
+		if err := s.requireDB(inst, inst.DBName); err != nil {
+			return "", err
+		}
+	}
+	// check paths
+	if _, err := os.Stat(p.Source); err != nil {
+		return "", fmt.Errorf("odoo source not found at %s", p.Source)
+	}
+	if _, err := os.Stat(filepath.Join(p.Source, "odoo-bin")); err != nil {
+		return "", fmt.Errorf("odoo-bin not found at %s/odoo-bin", p.Source)
+	}
+	if _, err := os.Stat(p.Conf); err != nil {
+		return "", fmt.Errorf("odoo.conf not found at %s", p.Conf)
+	}
+	if _, err := exec.LookPath(py); err != nil {
+		if _, err2 := os.Stat(py); err2 != nil {
+			return "", fmt.Errorf("python not found: %s (venv missing? try odoo16: python3.10)", py)
+		}
+	}
+	return py, nil
+}
+
+// GetShellCommand returns the exact command to run odoo shell in system terminal.
+func (s *Service) GetShellCommand(name, dbName string) (string, error) {
+	inst, err := s.reg.Get(name)
+	if err != nil {
+		return "", err
+	}
+	p := inst.ResolvePaths(s.rootFor(inst))
+	py, err := s.ShellCheck(name, dbName)
+	if err != nil {
+		return "", err
+	}
+	if dbName == "" {
+		dbName = inst.DBName
+	}
+	cmd := fmt.Sprintf("%s %s shell -c %s -d %s", py, filepath.Join(p.Source, "odoo-bin"), p.Conf, dbName)
+	return cmd, nil
 }

@@ -89,14 +89,34 @@ func NewShellSession(inst *instance.Instance, p instance.Paths, py, dbName strin
 func (s *ShellSession) HandleWS(w http.ResponseWriter, r *http.Request) error {
 	upgrader := websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool { return true },
-		ReadBufferSize:  1024,
-		WriteBufferSize: 1024,
+		ReadBufferSize:  4096,
+		WriteBufferSize: 4096,
 	}
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return err
 	}
 	s.conn = conn
+	// Keepalive
+	conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	conn.SetPongHandler(func(string) error {
+		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		return nil
+	})
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				s.mu.Lock()
+				_ = conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(10*time.Second))
+				s.mu.Unlock()
+			case <-s.done:
+				return
+			}
+		}
+	}()
 
 	// Configure PTY for raw mode
 	if err := pty.InheritSize(os.Stdin, s.pty); err != nil {
@@ -117,12 +137,12 @@ func (s *ShellSession) HandleWS(w http.ResponseWriter, r *http.Request) error {
 
 // readWS reads messages from WebSocket and writes to PTY stdin.
 func (s *ShellSession) readWS() {
-	defer close(s.done)
 	for {
 		_, msg, err := s.conn.ReadMessage()
 		if err != nil {
 			return
 		}
+		s.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 
 		// Handle resize messages: {"type":"resize","rows":24,"cols":80}
 		if len(msg) > 0 && msg[0] == '{' {
@@ -132,18 +152,22 @@ func (s *ShellSession) readWS() {
 				Cols uint16 `json:"cols"`
 			}
 			if json.Unmarshal(msg, &resizeMsg) == nil && resizeMsg.Type == "resize" {
-				s.resizeCh <- PtySize{Rows: resizeMsg.Rows, Cols: resizeMsg.Cols}
+				select {
+				case s.resizeCh <- PtySize{Rows: resizeMsg.Rows, Cols: resizeMsg.Cols}:
+				default:
+				}
 				continue
 			}
 		}
 
-		// Write to PTY stdin
+		// Write to PTY stdin (text or binary)
 		s.mu.Lock()
 		_, err = s.stdin.Write(msg)
 		s.mu.Unlock()
 		if err != nil {
 			return
 		}
+		// also handle single char Ctrl-C etc already in msg
 	}
 }
 

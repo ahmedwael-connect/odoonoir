@@ -65,6 +65,7 @@ func init() {
 		withInstanceCompletion(newBackupCmd()),
 		withInstanceCompletion(newRestoreCmd()),
 		withInstanceCompletion(newDropCmd()),
+		newDbCmd(),
 		withInstanceCompletion(newConfigCmd()),
 		withInstanceCompletion(newLogsCmd()),
 		withInstanceCompletion(newDoctorCmd()),

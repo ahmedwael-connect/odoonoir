@@ -12,11 +12,17 @@ import (
 
 // Field describes a model field to scaffold.
 type Field struct {
-	Name     string
-	Label    string
-	Type     string // char, text, boolean, integer, float, date, datetime, selection, many2one, one2many, many2many
-	Relation string // model for relational types
-	Required bool
+	Name       string
+	Label      string
+	Type       string // char, text, boolean, integer, float, date, datetime, selection, many2one, one2many, many2many
+	Relation   string // model for relational types
+	Required   bool
+	Help       string
+	Readonly   bool
+	Index      bool
+	Store      bool
+	Selection  string // comma-separated for selection type e.g. "a,b,c"
+	Default    string
 }
 
 // Model describes a model to scaffold.
@@ -24,6 +30,8 @@ type Model struct {
 	Name        string // technical, e.g. "library.book"
 	Label       string
 	Description string
+	RecName     string // _rec_name
+	Order       string // _order
 	Fields      []Field
 }
 
@@ -43,7 +51,9 @@ type Module struct {
 	Tests       bool
 	Controllers bool
 	DemoData    bool
-	Security    bool // extra security groups + record rules
+	Security    bool   // extra security groups + record rules
+	MailThread  bool   // mail.thread chatter
+	Activity    bool   // mail.activity.mixin
 	AddonsDir   string // target directory (instance custom_addons)
 }
 
@@ -236,16 +246,57 @@ func (m *Module) modelFile(mod Model) string {
 				rel = "res.partner"
 			}
 			fdef = fdef + "('" + rel + "'"
-			if f.Type == "many2one" {
+			if f.Label != "" {
 				fdef += ", string='" + f.Label + "'"
+			}
+			if f.Required {
+				fdef += ", required=True"
+			}
+			if f.Help != "" {
+				fdef += ", help='" + f.Help + "'"
+			}
+			if f.Readonly {
+				fdef += ", readonly=True"
 			}
 			fdef += ")"
 		} else if f.Type == "selection" {
-			// keep placeholder
+			sel := f.Selection
+			if sel == "" {
+				sel = "'option1','option2'"
+			} else {
+				// convert comma-separated to selection tuples
+				parts := strings.Split(sel, ",")
+				var opts []string
+				for _, p := range parts {
+					p = strings.TrimSpace(p)
+					if p != "" {
+						opts = append(opts, fmt.Sprintf("('%s', '%s')", p, strings.Title(p)))
+					}
+				}
+				if len(opts) > 0 {
+					fdef = fmt.Sprintf("fields.Selection([%s], string='%s'", strings.Join(opts, ", "), f.Label)
+				}
+			}
+			if f.Help != "" {
+				fdef += ", help='" + f.Help + "'"
+			}
+			fdef += ")"
 		} else {
 			fdef = fdef + "(string='" + f.Label + "'"
 			if f.Required {
 				fdef += ", required=True"
+			}
+			if f.Readonly {
+				fdef += ", readonly=True"
+			}
+			if f.Index {
+				fdef += ", index=True"
+			}
+			if f.Help != "" {
+				fdef += ", help='" + f.Help + "'"
+			}
+			if f.Default != "" {
+				fdef += ", default='" + f.Default + "'"
 			}
 			fdef += ")"
 		}
@@ -254,6 +305,25 @@ func (m *Module) modelFile(mod Model) string {
 	description := mod.Description
 	if description == "" {
 		description = mod.Label
+	}
+	recName := mod.RecName
+	if recName == "" {
+		recName = "name"
+	}
+	order := mod.Order
+	if order == "" {
+		order = "id desc"
+	}
+	inherit := ""
+	if m.MailThread || m.Activity {
+		var inherits []string
+		if m.MailThread {
+			inherits = append(inherits, "'mail.thread'")
+		}
+		if m.Activity {
+			inherits = append(inherits, "'mail.activity.mixin'")
+		}
+		inherit = fmt.Sprintf("    _inherit = [%s]\n", strings.Join(inherits, ", "))
 	}
 	return fmt.Sprintf(`# -*- coding: utf-8 -*-
 from odoo import fields, models
@@ -264,14 +334,15 @@ class %s(models.Model):
 
     _name = '%s'
     _description = %q
-    _rec_name = 'name'
-
+    _rec_name = '%s'
+    _order = '%s'
+%s
 %s
 
     def name_get(self):
         """Overridden to customize display name."""
         return super().name_get()
-`, ClassName(mod.Name), description, mod.Name, mod.Label, defaultFields(fields))
+`, ClassName(mod.Name), description, mod.Name, mod.Label, recName, order, inherit, defaultFields(fields))
 }
 
 func defaultFields(fields []string) string {

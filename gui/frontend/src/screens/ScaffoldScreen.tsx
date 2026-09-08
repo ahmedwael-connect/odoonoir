@@ -1,12 +1,13 @@
-import { useState } from "react"
-import { ScaffoldModule } from "../../bindings/github.com/ahmed/odoonoir/gui/app"
+import { useState, useEffect } from "react"
+import { ScaffoldModule, ListAddonPaths, Status } from "../../bindings/github.com/ahmed/odoonoir/gui/app"
 import { useToast } from "../App"
 import { Button } from "../components/atoms/Button"
 
-type FieldDef = { name: string; label: string; type: string; required: boolean; relation: string }
-type ModelDef = { name: string; label: string; description: string; fields: FieldDef[] }
+type FieldDef = { name: string; label: string; type: string; required: boolean; relation: string; help: string; readonly: boolean; index: boolean; selection: string; defaultValue: string }
+type ModelDef = { name: string; label: string; description: string; recName: string; order: string; fields: FieldDef[] }
 
 const fieldTypes = ["char","text","html","boolean","integer","float","monetary","date","datetime","selection","many2one","one2many","many2many"]
+const odooCategories = ["Sales","Inventory","Accounting","Manufacturing","Project","Human Resources","Marketing","Website","Point of Sale","Services","Tools","Customization","Administration","Uncategorized"]
 
 export function ScaffoldScreen({ name }: { name: string }) {
   const { toast } = useToast()
@@ -18,6 +19,7 @@ export function ScaffoldScreen({ name }: { name: string }) {
   const [version, setVersion] = useState("18.0.1.0.0")
   const [category, setCategory] = useState("Tools")
   const [addonsDir, setAddonsDir] = useState("")
+  const [addonsOptions, setAddonsOptions] = useState<string[]>([])
   const [depends, setDepends] = useState("base")
   const [menus, setMenus] = useState(true)
   const [wizard, setWizard] = useState(false)
@@ -25,15 +27,31 @@ export function ScaffoldScreen({ name }: { name: string }) {
   const [controllers, setControllers] = useState(false)
   const [demo, setDemo] = useState(false)
   const [security, setSecurity] = useState(true)
-  const [models, setModels] = useState<ModelDef[]>([{ name: "my.model", label: "My Model", description: "", fields: [{ name: "name", label: "Name", type: "char", required: true, relation: "" }] }])
+  const [mailThread, setMailThread] = useState(false)
+  const [activity, setActivity] = useState(false)
+  const [models, setModels] = useState<ModelDef[]>([{ name: "my.model", label: "My Model", description: "", recName: "name", order: "name", fields: [{ name: "name", label: "Name", type: "char", required: true, relation: "", help: "", readonly: false, index: false, selection: "", defaultValue: "" }] }])
   const [busy, setBusy] = useState(false)
 
-  const addModel = () => setModels([...models, { name: `my.model${models.length+1}`, label: `Model ${models.length+1}`, description: "", fields: [] }])
+  useEffect(() => {
+    Status(name).then((st:any)=>{
+      const ver = st?.Instance?.version || st?.instance?.version || "18.0"
+      const major = String(ver).split(".")[0]
+      const stamp = new Date().toISOString().slice(0,10).replace(/-/g,"")
+      setVersion(`${major}.0.1.${stamp}`)
+    }).catch(()=>{})
+    ListAddonPaths(name).then((list:any)=>{
+      const paths = (list||[]).map((e:any)=> e.path || e.Path).filter(Boolean)
+      setAddonsOptions(paths)
+      if (paths.length && !addonsDir) setAddonsDir(paths[paths.length-1])
+    }).catch(()=>{})
+  }, [name])
+
+  const addModel = () => setModels([...models, { name: `my.model${models.length+1}`, label: `Model ${models.length+1}`, description: "", recName: "name", order: "name", fields: [] }])
   const updateModel = (idx: number, patch: Partial<ModelDef>) => setModels(models.map((m,i)=> i===idx ? {...m, ...patch} : m))
   const removeModel = (idx: number) => setModels(models.filter((_,i)=>i!==idx))
   const addField = (mIdx: number) => {
     const m = models[mIdx]
-    updateModel(mIdx, { fields: [...m.fields, { name: `field_${m.fields.length+1}`, label: `Field ${m.fields.length+1}`, type: "char", required: false, relation: "" }] })
+    updateModel(mIdx, { fields: [...m.fields, { name: `field_${m.fields.length+1}`, label: `Field ${m.fields.length+1}`, type: "char", required: false, relation: "", help: "", readonly: false, index: false, selection: "", defaultValue: "" }] })
   }
   const updateField = (mIdx: number, fIdx: number, patch: Partial<FieldDef>) => {
     const m = models[mIdx]
@@ -49,9 +67,12 @@ export function ScaffoldScreen({ name }: { name: string }) {
     setBusy(true)
     try {
       const deps = depends.split(",").map(s => s.trim()).filter(Boolean)
-      const mods = models.map(m => ({ Name: m.name, Label: m.label, Description: m.description, Fields: m.fields.map(f=> ({ Name: f.name, Label: f.label, Type: f.type, Relation: f.relation, Required: f.required } as any)) } as any))
-      await ScaffoldModule(modName, displayName, summary, author, license, version, category, addonsDir, deps, mods, menus, wizard, tests, controllers, demo, security as any)
-      toast(`Module ${modName} scaffolded with ${mods.length} models`, "success")
+      const mods = models.map(m => ({ Name: m.name, Label: m.label, Description: m.description, Fields: m.fields.map(f=> ({ Name: f.name, Label: f.label, Type: f.type, Relation: f.relation, Required: f.required, Help: f.help, Readonly: f.readonly, Index: f.index, Selection: f.selection, Default: f.defaultValue } as any)) } as any))
+      // extend scaffold call with new flags: include mailThread/activity via security/demo handling
+      const extraDeps = [...deps]
+      if (mailThread && !extraDeps.includes("mail")) extraDeps.push("mail")
+      await ScaffoldModule(modName, displayName, summary, author, license, version, category, addonsDir, extraDeps, mods, menus, wizard, tests, controllers, demo, security, mailThread, activity as any)
+      toast(`Module ${modName} scaffolded with ${mods.length} models — ready to code`, "success")
     } catch (e) { toast(String(e), "error") } finally { setBusy(false) }
   }
 
@@ -66,10 +87,21 @@ export function ScaffoldScreen({ name }: { name: string }) {
           <div className="field"><span className="field-label">Summary</span><input className="field-input" value={summary} onChange={e => setSummary(e.target.value)} /></div>
           <div className="field"><span className="field-label">Author</span><input className="field-input" value={author} onChange={e => setAuthor(e.target.value)} /></div>
           <div className="field"><span className="field-label">License</span><select className="field-input" value={license} onChange={e => setLicense(e.target.value)}><option>LGPL-3</option><option>AGPL-3</option><option>MIT</option><option>OPL-1</option></select></div>
-          <div className="field"><span className="field-label">Version</span><input className="field-input mono" value={version} onChange={e => setVersion(e.target.value)} placeholder="18.0.1.0.0" /></div>
-          <div className="field"><span className="field-label">Category</span><input className="field-input" value={category} onChange={e => setCategory(e.target.value)} placeholder="Tools" /></div>
-          <div className="field"><span className="field-label">Depends (comma)</span><input className="field-input mono" value={depends} onChange={e => setDepends(e.target.value)} placeholder="base, web" /></div>
-          <div className="field md:col-span-2"><span className="field-label">Addons Dir (empty=auto instance custom_addons)</span><input className="field-input mono" value={addonsDir} onChange={e => setAddonsDir(e.target.value)} placeholder="/path/to/addons or empty" /></div>
+          <div className="field"><span className="field-label">Version *</span><input className="field-input mono" value={version} onChange={e => setVersion(e.target.value)} placeholder="18.0.1.0.0" /><span className="text-xs text-muted-foreground">Auto from instance {name} version</span></div>
+          <div className="field"><span className="field-label">Category *</span><select className="field-input" value={category} onChange={e=>setCategory(e.target.value)}>{odooCategories.map((c:string)=><option key={c} value={c}>{c}</option>)}<option value="Custom">Custom</option></select></div>
+          <div className="field"><span className="field-label">Depends (comma)</span><input className="field-input mono" value={depends} onChange={e => setDepends(e.target.value)} placeholder="base, web, mail" /></div>
+          <div className="field md:col-span-2"><span className="field-label">Addons Dir *</span>
+            {addonsOptions.length ? (
+              <select className="field-input mono" value={addonsDir} onChange={e=>setAddonsDir(e.target.value)}>
+                <option value="">auto (custom_addons)</option>
+                {addonsOptions.map(p=><option key={p} value={p}>{p}</option>)}
+                <option value="custom">— custom path —</option>
+              </select>
+            ) : (
+              <input className="field-input mono" value={addonsDir} onChange={e => setAddonsDir(e.target.value)} placeholder="/path/to/addons or empty" />
+            )}
+            {addonsDir==="custom" && <input className="field-input mono mt-2" placeholder="/custom/path" onChange={e=>setAddonsDir(e.target.value)} />}
+          </div>
         </div>
 
         <div className="p-4 border-t">
@@ -80,28 +112,35 @@ export function ScaffoldScreen({ name }: { name: string }) {
           <div className="space-y-4">
             {models.map((m, mi) => (
               <div key={mi} className="border rounded-xl p-4 bg-muted/20 space-y-3">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                   <input className="field-input mono" value={m.name} onChange={e=>updateModel(mi,{name:e.target.value})} placeholder="my.model" />
                   <input className="field-input" value={m.label} onChange={e=>updateModel(mi,{label:e.target.value})} placeholder="Label" />
+                  <input className="field-input" value={m.recName} onChange={e=>updateModel(mi,{recName:e.target.value})} placeholder="rec_name (name)" />
                   <div className="flex gap-2">
-                    <input className="field-input flex-1" value={m.description} onChange={e=>updateModel(mi,{description:e.target.value})} placeholder="Description" />
+                    <input className="field-input flex-1" value={m.order} onChange={e=>updateModel(mi,{order:e.target.value})} placeholder="order (name)" />
                     <Button variant="ghost" size="sm" onClick={()=>removeModel(mi)}>Remove</Button>
                   </div>
+                  <input className="field-input md:col-span-4" value={m.description} onChange={e=>updateModel(mi,{description:e.target.value})} placeholder="Description for model" />
                 </div>
                 <div className="space-y-2">
                   <div className="flex justify-between items-center">
-                    <span className="text-xs font-medium">Fields ({m.fields.length})</span>
+                    <span className="text-xs font-medium">Fields ({m.fields.length}) — detailed</span>
                     <Button variant="outline" size="sm" onClick={()=>addField(mi)}>+ Field</Button>
                   </div>
                   {m.fields.map((f, fi)=>(
                     <div key={fi} className="grid grid-cols-12 gap-2 items-center bg-card p-2 rounded-lg border">
-                      <input className="field-input mono col-span-3" value={f.name} onChange={e=>updateField(mi,fi,{name:e.target.value})} placeholder="field_name" />
-                      <input className="field-input col-span-3" value={f.label} onChange={e=>updateField(mi,fi,{label:e.target.value})} placeholder="Label" />
+                      <input className="field-input mono col-span-2" value={f.name} onChange={e=>updateField(mi,fi,{name:e.target.value})} placeholder="field_name" />
+                      <input className="field-input col-span-2" value={f.label} onChange={e=>updateField(mi,fi,{label:e.target.value})} placeholder="Label" />
                       <select className="field-input col-span-2" value={f.type} onChange={e=>updateField(mi,fi,{type:e.target.value})}>
                         {fieldTypes.map(t=><option key={t} value={t}>{t}</option>)}
                       </select>
-                      {(f.type==="many2one"||f.type==="one2many"||f.type==="many2many") && <input className="field-input mono col-span-2" value={f.relation} onChange={e=>updateField(mi,fi,{relation:e.target.value})} placeholder="res.partner" />}
-                      <label className="flex items-center gap-1 col-span-1 text-xs"><input type="checkbox" checked={f.required} onChange={e=>updateField(mi,fi,{required:e.target.checked})} /> Req</label>
+                      {(f.type==="many2one"||f.type==="one2many"||f.type==="many2many") ? <input className="field-input mono col-span-2" value={f.relation} onChange={e=>updateField(mi,fi,{relation:e.target.value})} placeholder="res.partner" /> : f.type==="selection" ? <input className="field-input mono col-span-2" value={f.selection} onChange={e=>updateField(mi,fi,{selection:e.target.value})} placeholder="a,b,c" /> : <input className="field-input mono col-span-2" value={f.help} onChange={e=>updateField(mi,fi,{help:e.target.value})} placeholder="help" />}
+                      <div className="col-span-2 flex gap-1 flex-wrap">
+                        <label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={f.required} onChange={e=>updateField(mi,fi,{required:e.target.checked})} /> Req</label>
+                        <label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={f.readonly} onChange={e=>updateField(mi,fi,{readonly:e.target.checked})} /> RO</label>
+                        <label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={f.index} onChange={e=>updateField(mi,fi,{index:e.target.checked})} /> Idx</label>
+                      </div>
+                      <input className="field-input mono col-span-1" value={f.defaultValue} onChange={e=>updateField(mi,fi,{defaultValue:e.target.value})} placeholder="default" />
                       <Button variant="ghost" size="sm" onClick={()=>removeField(mi,fi)}>✕</Button>
                     </div>
                   ))}
@@ -113,16 +152,18 @@ export function ScaffoldScreen({ name }: { name: string }) {
         </div>
 
         <div className="p-4 border-t">
-          <h3 className="font-semibold mb-3">Features — make it ready</h3>
+          <h3 className="font-semibold mb-3">Features — make it ready to design</h3>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
             <label className="flex items-center gap-2 p-3 border rounded-xl bg-card hover:bg-accent cursor-pointer"><input type="checkbox" checked={menus} onChange={e=>setMenus(e.target.checked)} /> Menus & Actions</label>
             <label className="flex items-center gap-2 p-3 border rounded-xl bg-card hover:bg-accent cursor-pointer"><input type="checkbox" checked={wizard} onChange={e=>setWizard(e.target.checked)} /> Wizard (TransientModel)</label>
             <label className="flex items-center gap-2 p-3 border rounded-xl bg-card hover:bg-accent cursor-pointer"><input type="checkbox" checked={tests} onChange={e=>setTests(e.target.checked)} /> Tests (TransactionCase)</label>
             <label className="flex items-center gap-2 p-3 border rounded-xl bg-card hover:bg-accent cursor-pointer"><input type="checkbox" checked={controllers} onChange={e=>setControllers(e.target.checked)} /> Controller (/hello)</label>
-            <label className="flex items-center gap-2 p-3 border rounded-xl bg-card hover:bg-accent cursor-pointer"><input type="checkbox" checked={demo} onChange={e=>setDemo(e.target.checked)} /> Demo data (demo.xml)</label>
-            <label className="flex items-center gap-2 p-3 border rounded-xl bg-card hover:bg-accent cursor-pointer"><input type="checkbox" checked={security} onChange={e=>setSecurity(e.target.checked)} /> Security groups</label>
+            <label className="flex items-center gap-2 p-3 border rounded-xl bg-card hover:bg-accent cursor-pointer"><input type="checkbox" checked={demo} onChange={e=>setDemo(e.target.checked)} /> Demo data</label>
+            <label className="flex items-center gap-2 p-3 border rounded-xl bg-card hover:bg-accent cursor-pointer"><input type="checkbox" checked={security} onChange={e=>setSecurity(e.target.checked)} /> Security (groups + CSV)</label>
+            <label className="flex items-center gap-2 p-3 border rounded-xl bg-card hover:bg-accent cursor-pointer"><input type="checkbox" checked={mailThread} onChange={e=>setMailThread(e.target.checked)} /> Mail Thread (mail.thread)</label>
+            <label className="flex items-center gap-2 p-3 border rounded-xl bg-card hover:bg-accent cursor-pointer"><input type="checkbox" checked={activity} onChange={e=>setActivity(e.target.checked)} /> Activity Mix (mail.activity.mixin)</label>
           </div>
-          <div className="text-xs text-muted-foreground mt-2">Security creates base.group_user access + manager group; Controllers adds http.Controller; Demo adds demo.xml; all wired in manifest.</div>
+          <div className="text-xs text-muted-foreground mt-2">Mail Thread adds chatter to form; Activity adds kanban activities; all wired in manifest & views. Choose to make module design-ready.</div>
         </div>
 
         <div className="p-4 border-t flex justify-end">

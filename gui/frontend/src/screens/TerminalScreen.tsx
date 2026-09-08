@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react"
-import { ShellURL, Databases, ValidateDBConfig } from "../../bindings/github.com/ahmed/odoonoir/gui/app"
+import { ShellURL, GetShellCommand, ShellCheck, Databases, ValidateDBConfig } from "../../bindings/github.com/ahmed/odoonoir/gui/app"
 import type { DatabaseView } from "../../bindings/github.com/ahmed/odoonoir/internal/service/models"
 import { useToast } from "../App"
 import { Button } from "../components/atoms/Button"
@@ -15,6 +15,8 @@ export function TerminalScreen({ name }: { name: string }) {
   const [shellUrl, setShellUrl] = useState("")
   const [dbError, setDbError] = useState<string | null>(null)
   const [configWarns, setConfigWarns] = useState<string[]>([])
+  const [systemCmd, setSystemCmd] = useState<string>("")
+  const [showSystem, setShowSystem] = useState(false)
 
   const loadDbs = useCallback(async () => {
     setDbError(null)
@@ -43,41 +45,94 @@ export function TerminalScreen({ name }: { name: string }) {
   const connect = useCallback(async () => {
     if (!dbName) { toast("Select a database first", "error"); return }
     try {
+      // pre-check to give immediate detailed error (python/odoo-bin/conf)
+      try { await ShellCheck(name, dbName) } catch (e) { const msg=String(e); setDbError(msg); toast(msg, "error"); return }
       const url = await ShellURL(name)
       const wsUrl = url.replace("http://", "ws://").replace("https://", "wss://") + `?db=${dbName}`
       setShellUrl(wsUrl)
+    } catch (e) { const msg=String(e); setDbError(msg); toast(msg, "error") }
+  }, [name, dbName, toast])
+
+  const showSystemTerminal = useCallback(async () => {
+    try {
+      const cmd = await GetShellCommand(name, dbName) as any
+      setSystemCmd(String(cmd))
+      setShowSystem(true)
     } catch (e) { toast(String(e), "error") }
   }, [name, dbName, toast])
 
+  // history + snippets
+  const snippets = [
+    "env['res.partner'].search([], limit=5)",
+    "env['sale.order'].search([('state','=','draft')], limit=5)",
+    "env.user.name",
+    "self.env.context",
+    "env['ir.model'].search([('model','=','res.partner')], limit=1)",
+  ]
+
   useEffect(() => {
     if (!shellUrl || !termRef.current) return
-    let term: any, fitAddon: any, ws: WebSocket
+    let term: any, fitAddon: any, webLinks: any, ws: WebSocket
     let cancelled = false
     ;(async () => {
       const { Terminal } = await import("xterm")
       const { FitAddon } = await import("xterm-addon-fit")
+      const { WebLinksAddon } = await import("xterm-addon-web-links")
       if (cancelled || !termRef.current) return
-      term = new Terminal({ cursorBlink: true, fontFamily: "var(--font-mono)", fontSize: 13, theme: { background: "#0a0c10", foreground: "#e0e0e0" } })
+      term = new Terminal({ cursorBlink: true, fontFamily: "var(--font-mono)", fontSize: 13, theme: { background: "#0a0c10", foreground: "#e0e0e0" }, allowProposedApi: true })
       fitAddon = new FitAddon()
+      webLinks = new WebLinksAddon()
       term.loadAddon(fitAddon)
+      term.loadAddon(webLinks)
       term.open(termRef.current!)
       fitAddon.fit()
       xtermRef.current = term
+      // history
+      const histKey = `odoonoir:shell:${name}:${dbName}`
+      let hist: string[] = JSON.parse(localStorage.getItem(histKey) || "[]")
+      let histIdx = hist.length
       ws = new WebSocket(shellUrl)
       wsRef.current = ws
       ws.binaryType = "arraybuffer"
-      ws.onopen = () => { setConnected(true); term.writeln("\r\n[Connected to Odoo Shell]\r\n") }
+      ws.onopen = () => { setConnected(true); term.writeln("\r\n[Connected to Odoo Shell — history ↑↓, Ctrl+L clear, snippets below]\r\n") }
       ws.onmessage = (ev) => {
         if (ev.data instanceof ArrayBuffer) term.write(new TextDecoder().decode(ev.data))
         else term.write(ev.data)
       }
-      ws.onclose = () => { setConnected(false); term.writeln("\r\n[Disconnected]\r\n") }
-      ws.onerror = () => { setConnected(false); term.writeln("\r\n[Connection error]\r\n") }
-      term.onData((data: string) => { if (ws.readyState === WebSocket.OPEN) ws.send(data) })
-      const onResize = () => { fitAddon.fit(); if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "resize", rows: term.rows, cols: term.cols })) }
+      ws.onclose = () => { setConnected(false); term.writeln("\r\n[Disconnected — Reconnect to continue]\r\n") }
+      ws.onerror = () => { setConnected(false); const msg=`[Connection error — ${shellUrl} — check DB, python, odoo-bin. Try System terminal below]`; term.writeln("\r\n"+msg+"\r\n"); setDbError(msg) }
+      let buf = ""
+      term.onData((data: string) => {
+        // handle history and clear
+        if (data === "\r") {
+          if (buf.trim()) { hist.push(buf); if (hist.length>100) hist.shift(); localStorage.setItem(histKey, JSON.stringify(hist)); histIdx = hist.length }
+          buf = ""
+        } else if (data === "\x7f") {
+          buf = buf.slice(0,-1)
+        } else if (data.length===1 && data >= " ") {
+          buf += data
+        }
+        if (ws.readyState === WebSocket.OPEN) ws.send(data)
+      })
+      term.attachCustomKeyEventHandler((ev: KeyboardEvent) => {
+        if (ev.key === "c" && ev.ctrlKey) { if (ws.readyState===WebSocket.OPEN) ws.send("\x03"); return false }
+        if (ev.key === "l" && ev.ctrlKey) { term.clear(); return false }
+        if (ev.key === "ArrowUp") {
+          if (histIdx>0) { histIdx--; const cmd = hist[histIdx]||""; term.write("\r\x1b[K" + cmd); buf = cmd }
+          return false
+        }
+        if (ev.key === "ArrowDown") {
+          if (histIdx < hist.length-1) { histIdx++; const cmd = hist[histIdx]||""; term.write("\r\x1b[K"+cmd); buf=cmd } else { histIdx=hist.length; term.write("\r\x1b[K"); buf="" }
+          return false
+        }
+        return true
+      })
+      const onResize = () => { try{ fitAddon.fit(); if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "resize", rows: term.rows, cols: term.cols })) }catch{} }
       window.addEventListener("resize", onResize)
-      term.attachCustomKeyEventHandler((ev: KeyboardEvent) => { if (ev.key === "c" && ev.ctrlKey) { ws.send("\x03"); return false } return true })
-      return () => window.removeEventListener("resize", onResize)
+      // drag resize observer
+      const ro = new ResizeObserver(onResize)
+      if (termRef.current) ro.observe(termRef.current)
+      return () => { window.removeEventListener("resize", onResize); ro.disconnect() }
     })()
     return () => {
       cancelled = true
@@ -85,12 +140,12 @@ export function TerminalScreen({ name }: { name: string }) {
       try { xtermRef.current?.dispose() } catch {}
       setConnected(false)
     }
-  }, [shellUrl])
+  }, [shellUrl, name, dbName])
 
   return (
     <div className="screen">
-      <div className="card">
-        <div className="card-header">
+      <div className="card flex flex-col max-h-[75vh] rounded-[20px] shadow-[var(--bento-shadow)]">
+        <div className="card-header shrink-0">
           <h2>Terminal — {name}</h2>
           <div className="action-row">
             <select className="field-input" style={{ minWidth: 160 }} value={dbName} onChange={e => setDbName(e.target.value)}>
@@ -99,6 +154,7 @@ export function TerminalScreen({ name }: { name: string }) {
             </select>
             <Button variant="primary" onClick={connect} disabled={!dbName || connected}>Connect</Button>
             <Button variant="outline" onClick={() => { wsRef.current?.close(); setShellUrl("") }} disabled={!connected}>Disconnect</Button>
+            <Button variant="ghost" size="sm" onClick={showSystemTerminal} disabled={!dbName}>System terminal</Button>
             <span className={`pill ${connected ? "running" : "stopped"}`}>{connected ? "connected" : "disconnected"}</span>
           </div>
         </div>
@@ -115,12 +171,40 @@ export function TerminalScreen({ name }: { name: string }) {
             <div className="flex gap-2">
               <Button variant="outline" size="sm" onClick={loadDbs}>Retry</Button>
               <Button variant="ghost" size="sm" onClick={()=>toast("Check odoo.conf db_host/db_user and systemctl status postgresql", "info")}>Hints</Button>
+              <Button variant="ghost" size="sm" onClick={showSystemTerminal}>System terminal</Button>
             </div>
           </div>
         )}
-        {!dbName && !dbError && <div className="empty">Select a database to start Odoo shell. Works when instance is stopped or running (shell uses `odoo shell -d`).</div>}
-        <div ref={termRef} className="log-container" style={{ height: 480, background: "#0a0c10", padding: 0, overflow: "hidden" }} />
-        <div className="p-3 text-xs text-muted-foreground border-t">Tip: <kbd>Ctrl+C</kbd> interrupt, `env['res.partner'].search([])` to test.</div>
+        {showSystem && (
+          <div className="mx-4 mt-3 p-3 rounded-lg border bg-card space-y-2">
+            <div className="font-medium text-sm">Connect on system terminal</div>
+            <div className="text-xs text-muted-foreground">Copy, paste into your system terminal, hit Enter — opens same odoo shell:</div>
+            <div className="flex gap-2">
+              <input className="field-input mono flex-1" readOnly value={systemCmd} onFocus={e=>e.currentTarget.select()} />
+              <Button variant="outline" size="sm" onClick={()=>{ navigator.clipboard.writeText(systemCmd); toast("Copied", "success") }}>Copy</Button>
+              <Button variant="ghost" size="sm" onClick={()=>setShowSystem(false)}>Close</Button>
+            </div>
+            <div className="text-xs mono bg-muted p-2 rounded">{systemCmd || "—"}</div>
+            <div className="text-xs text-muted-foreground">Tip: runs <span className="mono">{systemCmd.split(" ")[0]}</span> with your instance's venv & conf — works even if WS fails.</div>
+          </div>
+        )}
+        {!dbName && !dbError && !showSystem && <div className="empty">Select a database to start Odoo shell. Works when instance is stopped or running (shell uses `odoo shell -d`). Or use System terminal.</div>}
+        <div className="px-3 py-2 flex gap-2 items-center border-t bg-muted/20">
+          <select className="field-input text-xs" style={{ minWidth: 220 }} defaultValue="" onChange={e=>{ const v=e.target.value; if(v && wsRef.current?.readyState===WebSocket.OPEN) wsRef.current.send(v+"\n"); e.target.value="" }}>
+            <option value="">Snippets…</option>
+            {snippets.map(s=><option key={s} value={s}>{s.slice(0,60)}</option>)}
+          </select>
+          <label className="text-xs flex items-center gap-1 cursor-pointer border rounded px-2 py-1 bg-card hover:bg-accent">
+            <input type="file" accept=".py" className="hidden" onChange={e=>{
+              const f=e.target.files?.[0]; if(!f) return; const r=new FileReader(); r.onload=()=>{ const txt=r.result as string; if(wsRef.current?.readyState===WebSocket.OPEN) wsRef.current.send(txt+"\n") }; r.readAsText(f)
+            }} /> Upload .py
+          </label>
+          <Button variant="ghost" size="sm" onClick={()=>xtermRef.current?.clear()}>Clear</Button>
+          <Button variant="ghost" size="sm" onClick={()=>{ if(xtermRef.current) { const sel=xtermRef.current.getSelection(); if(sel) navigator.clipboard.writeText(sel) } }}>Copy sel</Button>
+          <span className="ml-auto text-xs text-muted-foreground hidden md:inline">↑↓ history • Ctrl+C/K • autodetect `lxml.html.clean` already fixed</span>
+        </div>
+        <div ref={termRef} className="log-container flex-1 min-h-[320px] h-[420px] max-h-[55vh] resize-y overflow-hidden rounded-[12px] m-3" style={{ background: "#0a0c10", padding: 4 }} />
+        <div className="p-3 text-xs text-muted-foreground border-t shrink-0 flex gap-2 flex-wrap">Tip: <kbd>Ctrl+C</kbd> interrupt, `env['res.partner'].search([])` to test. <span className="ml-auto">Drag bottom edge to resize • <kbd>Ctrl+L</kbd> clear • Web links clickable</span></div>
       </div>
     </div>
   )

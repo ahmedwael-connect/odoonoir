@@ -26,6 +26,8 @@ type DatabaseView struct {
 	Owner       string `json:"owner"`
 	Initialized bool   `json:"initialized"`
 	Primary     bool   `json:"primary"`
+	Tracked     bool   `json:"tracked"`
+	Discovered  bool   `json:"discovered"`
 }
 
 // Databases lists the databases served by an instance with live metadata.
@@ -39,10 +41,38 @@ func (s *Service) Databases(name string) ([]DatabaseView, error) {
 		return nil, err
 	}
 	names := inst.AllDBs()
-	batch, _ := s.pg.BatchDatabaseInfo(names)
-	out := make([]DatabaseView, 0, len(names))
+	trackedSet := map[string]bool{}
 	for _, n := range names {
-		dv := DatabaseView{Name: n, Primary: n == inst.DBName}
+		trackedSet[n] = true
+	}
+	// Discover DBs created via web/database/manager (owned by same DBUser but not yet tracked)
+	var discoveredNames []string
+	if discovered, err := s.pg.DatabasesForRole(inst.DBUser); err == nil {
+		// Build set of all tracked DBs across all instances to avoid cross-instance pollution
+		allTracked := map[string]bool{}
+		if allInst, err := s.reg.All(); err == nil {
+			for _, other := range allInst {
+				for _, d := range other.AllDBs() {
+					allTracked[d] = true
+				}
+			}
+		}
+		for _, d := range discovered {
+			if !trackedSet[d] && !allTracked[d] {
+				// truly orphaned DB, likely created via web UI for this instance — show as discovered
+				discoveredNames = append(discoveredNames, d)
+			} else if !trackedSet[d] && allTracked[d] {
+				// already tracked by another instance — skip to avoid showing all versions
+				continue
+			}
+		}
+	}
+	allNames := append(append([]string{}, names...), discoveredNames...)
+	batch, _ := s.pg.BatchDatabaseInfo(allNames)
+	out := make([]DatabaseView, 0, len(allNames))
+	for _, n := range allNames {
+		_, isTracked := trackedSet[n]
+		dv := DatabaseView{Name: n, Primary: n == inst.DBName, Tracked: isTracked, Discovered: !isTracked}
 		if bi, ok := batch[n]; ok {
 			dv.SizeBytes = bi.Size
 			dv.Owner = bi.Owner

@@ -301,6 +301,40 @@ first, and the database is untracked from the instance afterwards.`,
 	return cmd
 }
 
+func newSetPrimaryCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "set-primary <instance> <db>",
+		Short: "Change the primary database of an instance",
+		Long:  `Changes which database is the primary (DBName) for an instance. The new primary must be one of the databases already served by the instance. The old primary becomes an additional database. The odoo.conf db_name is updated accordingly.`,
+		Example: `  odoonoir db set-primary myapp myapp2  # make myapp2 the primary`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			inst, err := loadInstance(args[0])
+			if err != nil {
+				return err
+			}
+			dbName, _, err := resolveDB(inst, args[1])
+			if err != nil {
+				return err
+			}
+			if err := svc.SetPrimaryDatabase(inst.Name, dbName); err != nil {
+				return err
+			}
+			fmt.Println(th.Successf("primary database of %s is now %s", inst.Name, dbName))
+			return nil
+		},
+	}
+}
+
+func newDbCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "db",
+		Short: "Database operations for an instance",
+	}
+	cmd.AddCommand(newSetPrimaryCmd())
+	return cmd
+}
+
 // listDatabases prints the databases served by an instance.
 func listDatabases(inst *instance.Instance, out interface{ Write([]byte) (int, error) }) error {
 	pg := db.New(cfg)

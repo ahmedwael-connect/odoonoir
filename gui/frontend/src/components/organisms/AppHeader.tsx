@@ -40,9 +40,9 @@ export function AppHeader({
         <Menu className="h-5 w-5" />
       </Button>
       <div className="font-bold tracking-tight">OdooNoir</div>
-      <span className="hidden sm:inline text-xs text-muted-foreground border rounded-full px-2 py-0.5">
-        {instanceCount} instance{instanceCount !== 1 ? "s" : ""}
-      </span>
+      <button onClick={()=>window.dispatchEvent(new CustomEvent("odoonoir-nav-dashboard"))} className="hidden sm:inline text-xs text-muted-foreground border rounded-full px-2 py-0.5 hover:bg-accent hover:text-foreground transition-colors">
+        {instanceCount} instance{instanceCount !== 1 ? "s" : ""} • Dashboard
+      </button>
 
       <button
         onClick={onOpenPalette}

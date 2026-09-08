@@ -137,9 +137,14 @@ export function InstanceLift({
       </div>
 
       {!collapsed && (
-        <div className="p-3 border-t text-xs text-muted-foreground flex items-center justify-between">
-          <span>{instances.length} instance{instances.length !== 1 ? "s" : ""}</span>
-          <span className="hidden xl:inline">Lift</span>
+        <div className="p-3 border-t text-xs text-muted-foreground flex flex-col gap-2">
+          <button onClick={()=>window.dispatchEvent(new CustomEvent("odoonoir-nav-dashboard"))} className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg border hover:bg-accent text-xs font-medium">
+            <span>📊</span> Dashboard
+          </button>
+          <div className="flex items-center justify-between">
+            <span>{instances.length} instance{instances.length !== 1 ? "s" : ""}</span>
+            <span className="hidden xl:inline">Lift</span>
+          </div>
         </div>
       )}
     </aside>

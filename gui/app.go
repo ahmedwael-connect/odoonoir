@@ -243,7 +243,7 @@ func (a *App) CheckVersion(version string) []checker.Result {
 }
 
 // ScaffoldModule generates a complete Odoo module tree from a declarative definition.
-func (a *App) ScaffoldModule(name, displayName, summary, author, license_, version, category, addonsDir string, depends []string, models []odoomod.Model, menus, wizard, tests, controllers, demo, security bool) error {
+func (a *App) ScaffoldModule(name, displayName, summary, author, license_, version, category, addonsDir string, depends []string, models []odoomod.Model, menus, wizard, tests, controllers, demo, security, mailThread, activity bool) error {
 	m := &odoomod.Module{
 		Name:        name,
 		DisplayName: displayName,
@@ -260,6 +260,8 @@ func (a *App) ScaffoldModule(name, displayName, summary, author, license_, versi
 		Controllers: controllers,
 		DemoData:    demo,
 		Security:    security,
+		MailThread:  mailThread,
+		Activity:    activity,
 		AddonsDir:   addonsDir,
 	}
 	return odoomod.Scaffold(m)
@@ -318,13 +320,28 @@ func (a *App) CronList(name, dbName string) ([]service.CronEntry, error) {
 	return a.svc.CronList(name, dbName)
 }
 
-// ShellURL returns the WebSocket URL for the odoo shell.
+// ShellURL returns the WebSocket URL for the odoo shell with pre-flight checks.
 func (a *App) ShellURL(name string) (string, error) {
 	inst, err := a.svc.Instance(name)
 	if err != nil {
 		return "", err
 	}
+	// pre-check python/odoo-bin/conf to give immediate hint instead of generic ws error
+	if _, err := a.svc.ShellCheck(name, ""); err != nil {
+		return "", err
+	}
 	return fmt.Sprintf("ws://localhost:%d/shell", inst.LongpollPort+1), nil
+}
+
+// GetShellCommand returns the exact odoo shell command to run in a system terminal.
+func (a *App) GetShellCommand(name, dbName string) (string, error) {
+	return a.svc.GetShellCommand(name, dbName)
+}
+
+// ShellCheck validates python/odoo-bin/conf/db for shell.
+func (a *App) ShellCheck(name, dbName string) error {
+	_, err := a.svc.ShellCheck(name, dbName)
+	return err
 }
 
 // BrowseRecords searches and returns records for a model.
@@ -550,8 +567,24 @@ func (a *App) SudoAptInstall(password string, pkgs []string) (string, error) {
 	return a.svc.SudoAptInstall(password, pkgs)
 }
 
+func (a *App) GetSlowQueries(name, dbName string, limit int) ([]service.SlowQuery, error) {
+	return a.svc.GetSlowQueries(name, dbName, limit)
+}
+
+func (a *App) GetFlameGraph(name string, seconds int) (string, error) {
+	return a.svc.GetFlameGraph(name, seconds)
+}
+
 func (a *App) GetAutoUpdate(name string) (*service.AutoUpdateConfig, error) {
 	return a.svc.GetAutoUpdate(name)
+}
+
+func (a *App) SetPrimaryDatabase(name, dbName string) error {
+	return a.svc.SetPrimaryDatabase(name, dbName)
+}
+
+func (a *App) TrackDatabase(name, dbName string) error {
+	return a.svc.TrackDatabase(name, dbName)
 }
 
 func (a *App) SetAutoUpdate(name string, modules []string, enabled bool) error {

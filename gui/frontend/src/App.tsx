@@ -251,6 +251,11 @@ export default function App() {
   const [addonsOpen, setAddonsOpen] = useState(false);
   // keep hook for side-effect (auto-redirect global/instance)
   useInstanceNav(selected, screen, setScreen);
+  useEffect(()=>{
+    const h=()=>{ setSelected(null); setScreen("dashboard") };
+    window.addEventListener("odoonoir-nav-dashboard" as any, h);
+    return ()=>window.removeEventListener("odoonoir-nav-dashboard" as any, h);
+  }, [setScreen]);
 
   /* Refresh full instance list + all statuses in parallel */
   const refresh = useCallback(async () => {
@@ -848,19 +853,22 @@ function DatabasesScreen({
   const [restoreTarget, setRestoreTarget] = useState("");
   const [restoreForce, setRestoreForce] = useState(false);
   const [showRestore, setShowRestore] = useState(false);
+  const [showAll, setShowAll] = useState(false);
 
   const loadDbs = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
       const list = await Databases(name);
-      setDbs(list);
+      setDbs(list as any);
     } catch (e) {
       setError(String(e));
     } finally {
       setLoading(false);
     }
   }, [name]);
+
+  const filteredDbs = showAll ? dbs : dbs.filter((d:any)=> d.tracked ?? d.Tracked ?? d.primary ?? d.Primary ?? true);
 
   useEffect(() => { loadDbs(); }, [loadDbs]);
 
@@ -870,6 +878,7 @@ function DatabasesScreen({
         <div className="card-header">
           <h2>Databases</h2>
           <div className="action-row">
+            <label className="flex items-center gap-1 text-xs cursor-pointer"><input type="checkbox" checked={showAll} onChange={e=>setShowAll(e.target.checked)} /> Show all ({dbs.length})</label>
             <Button variant="outline" size="sm" onClick={loadDbs} disabled={loading} loading={loading}>
               Refresh
             </Button>
@@ -940,17 +949,34 @@ function DatabasesScreen({
               </tr>
             </thead>
             <tbody>
-              {dbs.map((db) => (
+              {filteredDbs.map((db:any) => (
                 <tr key={db.name}>
                   <td>
                     <span className="mono">{db.name}</span>
                     {db.primary && <span className="pill primary">primary</span>}
+                    {(db.discovered || db.Discovered) && <span className="pill warning">discovered</span>}
+                    {!(db.tracked ?? db.Tracked ?? true) && !(db.discovered||db.Discovered) && <span className="pill">untracked</span>}
                   </td>
                   <td>{formatBytes(db.sizeBytes)}</td>
                   <td>{db.owner || "—"}</td>
                   <td>{db.initialized ? "✓" : "—"}</td>
                   <td>
                     <div className="row-actions">
+                      {(db.discovered || db.Discovered) && (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={async()=>{
+                            try{
+                              const { TrackDatabase } = await import("../bindings/github.com/ahmed/odoonoir/gui/app");
+                              await TrackDatabase(name, db.name);
+                              loadDbs();
+                            }catch(e){}
+                          }}
+                        >
+                          Track
+                        </Button>
+                      )}
                       {!db.initialized && (
                         <Button
                           variant="secondary"
@@ -971,6 +997,26 @@ function DatabasesScreen({
                       >
                         Backup
                       </Button>
+                      {!db.primary && !(db.discovered||db.Discovered) && (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          disabled={busy === name}
+                          onClick={() => onConfirm({
+                            title: `Make "${db.name}" primary?`,
+                            message: `Primary will change from "${dbs.find((d:any)=>d.primary)?.name || "—"}" to "${db.name}". New starts without -d will serve it.`,
+                            onConfirm: async()=>{
+                              try{
+                                const { SetPrimaryDatabase } = await import("../bindings/github.com/ahmed/odoonoir/gui/app");
+                                await SetPrimaryDatabase(name, db.name);
+                                loadDbs();
+                              }catch(e){}
+                            },
+                          })}
+                        >
+                          ★ Primary
+                        </Button>
+                      )}
                       {db.name !== (status?.Serving ?? "") && (
                         <Button
                           variant="success"
@@ -1006,9 +1052,9 @@ function DatabasesScreen({
                   </td>
                 </tr>
               ))}
-              {dbs.length === 0 && !loading && (
+              {filteredDbs.length === 0 && !loading && (
                 <tr>
-                  <td colSpan={5} className="empty">No databases</td>
+                  <td colSpan={5} className="empty">{showAll ? "No databases" : "No tracked databases — toggle Show all to see discovered"}</td>
                 </tr>
               )}
             </tbody>
