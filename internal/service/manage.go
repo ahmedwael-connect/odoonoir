@@ -171,8 +171,12 @@ func (s *Service) Clone(ctx context.Context, name, newName string, port int, emi
 	np := newInst.ResolvePaths(s.rootFor(newInst))
 
 	emit(Event{Kind: StepStart, Instance: newName, Step: "cloning addons"})
-	_ = copyDir(sp.Addons, np.Addons)
-	_ = copyDir(sp.DataDir, np.DataDir)
+	if err := copyDir(sp.Addons, np.Addons); err != nil {
+		return nil, fmt.Errorf("clone addons: %w", err)
+	}
+	if err := copyDir(sp.DataDir, np.DataDir); err != nil {
+		return nil, fmt.Errorf("clone data dir: %w", err)
+	}
 	emit(Event{Kind: StepDone, Instance: newName, Step: "cloning addons"})
 
 	emit(Event{Kind: StepStart, Instance: newName, Step: "installing"})

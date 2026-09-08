@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -118,7 +119,9 @@ func (s *Service) restoreBackupSchedules() error {
 		entry := s.scheduler.Entry(cron.EntryID(entryID))
 		next := entry.Next
 		inst.BackupScheduleNextRun = &next
-		_ = s.reg.Put(inst)
+		if err := s.reg.Put(inst); err != nil {
+			log.Printf("restore backup schedule for %s: update registry: %v", name, err)
+		}
 	}
 	return nil
 }
@@ -346,7 +349,9 @@ func (s *Service) SetPrimaryDatabase(name, dbName string) error {
 		}
 		// auto-track discovered
 		inst.AddDB(dbName)
-		_ = s.reg.Put(inst)
+		if err := s.reg.Put(inst); err != nil {
+			return fmt.Errorf("auto-track db: %w", err)
+		}
 		// re-validate
 		if err := s.requireDB(inst, dbName); err != nil {
 			return err
@@ -371,7 +376,9 @@ func (s *Service) SetPrimaryDatabase(name, dbName string) error {
 	conf, err := odoconf.Load(p.Conf)
 	if err == nil {
 		conf.Set("db_name", dbName)
-		_ = conf.Save()
+		if err := conf.Save(); err != nil {
+			log.Printf("set primary db: save odoo.conf: %v", err)
+		}
 	}
 	return nil
 }
@@ -712,7 +719,9 @@ func (s *Service) runScheduledBackup(name string) {
 		inst2.BackupScheduleNextRun = &next
 	}
 	inst2.UpdatedAt = now
-	_ = s.reg.Put(inst2)
+	if err := s.reg.Put(inst2); err != nil {
+		log.Printf("update backup schedule for %s: %v", name, err)
+	}
 	s.mu.Unlock()
 }
 

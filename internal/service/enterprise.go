@@ -117,8 +117,12 @@ func (s *Service) LoadEnterprise(ctx context.Context, name string, opts LoadEnte
 			// try fetch all
 			_ = runGit(ctx, dest, "fetch", "origin")
 		}
-		_ = runGit(ctx, dest, "checkout", branch)
-		_ = runGit(ctx, dest, "pull", "origin", branch)
+		if err := runGit(ctx, dest, "checkout", branch); err != nil {
+			return nil, fmt.Errorf("enterprise checkout %s: %w", branch, err)
+		}
+		if err := runGit(ctx, dest, "pull", "origin", branch); err != nil {
+			return nil, fmt.Errorf("enterprise pull %s: %w", branch, err)
+		}
 		emit(Event{Kind: LogLine, Instance: name, Message: "enterprise updated at " + dest})
 	} else {
 		_ = os.RemoveAll(dest)
@@ -283,9 +287,13 @@ func (s *Service) UnloadEnterprise(name string) (*EnterpriseStatus, error) {
 		filtered = tmp
 	}
 	_ = conf.SetAddonsPath(filtered)
-	_ = conf.Save()
+	if err := conf.Save(); err != nil {
+		return nil, fmt.Errorf("save odoo.conf: %w", err)
+	}
 	inst.EnterprisePath = ""
 	// keep repo/branch for history
-	_ = s.reg.Put(inst)
+	if err := s.reg.Put(inst); err != nil {
+		return nil, fmt.Errorf("update registry: %w", err)
+	}
 	return s.DetectEnterprise(name)
 }

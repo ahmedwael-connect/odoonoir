@@ -53,6 +53,24 @@ import type {
   ConfEntry,
 } from "../bindings/github.com/ahmed/odoonoir/gui/models";
 
+/* ── Per-Screen Error Boundary ──────────────────────────────────────── */
+
+function ScreenBoundary({ name, children }: { name: string; children: React.ReactNode }) {
+  return (
+    <ErrorBoundary
+      fallback={
+        <div className="empty" style={{ minHeight: "200px" }}>
+          <div className="empty-icon">⚠️</div>
+          <div className="empty-title">{name} failed</div>
+          <div className="empty-desc">An error occurred in this screen. Try navigating away and back.</div>
+        </div>
+      }
+    >
+      {children}
+    </ErrorBoundary>
+  );
+}
+
 /* ── Toast System ───────────────────────────────────────────────────── */
 
 interface Toast {
@@ -481,77 +499,87 @@ export default function App() {
             )}
 
             {(selected && effectiveScreen === "overview" && selectedInst && (
-              <InstanceDetail
-                name={selected}
-                status={selectedInst}
-                busy={busy}
-                onAct={act}
-                onBackup={handleBackup}
-                onNavigate={setScreen}
-                onRemove={handleRemove}
-                onConfirm={setConfirm}
-                onAddons={()=>setAddonsOpen(true)}
-                onEnterprise={()=>setEnterpriseOpen(true)}
-              />
+              <ScreenBoundary name="Instance Overview">
+                <InstanceDetail
+                  name={selected}
+                  status={selectedInst}
+                  busy={busy}
+                  onAct={act}
+                  onBackup={handleBackup}
+                  onNavigate={setScreen}
+                  onRemove={handleRemove}
+                  onConfirm={setConfirm}
+                  onAddons={()=>setAddonsOpen(true)}
+                  onEnterprise={()=>setEnterpriseOpen(true)}
+                />
+              </ScreenBoundary>
             )) as any}
 
             {selected && effectiveScreen === "databases" && (
-              <DatabasesScreen
-                name={selected}
-                status={selectedInst}
-                busy={busy}
-                onBackup={handleBackup}
-                onRestore={handleRestore}
-                onDrop={handleDropDB}
-                onInit={handleInitDB}
-                onSwitch={async (n, db) => {
-                  await run(n, `Switch to ${db}`, () => SwitchDB(n, db));
-                }}
-                onConfirm={setConfirm}
-              />
+              <ScreenBoundary name="Databases">
+                <DatabasesScreen
+                  name={selected}
+                  status={selectedInst}
+                  busy={busy}
+                  onBackup={handleBackup}
+                  onRestore={handleRestore}
+                  onDrop={handleDropDB}
+                  onInit={handleInitDB}
+                  onSwitch={async (n, db) => {
+                    await run(n, `Switch to ${db}`, () => SwitchDB(n, db));
+                  }}
+                  onConfirm={setConfirm}
+                />
+              </ScreenBoundary>
             )}
 
-            {selected && effectiveScreen === "logs" && <LogsScreen name={selected} />}
+            {selected && effectiveScreen === "logs" && <ScreenBoundary name="Logs"><LogsScreen name={selected} /></ScreenBoundary>}
 
             {selected && effectiveScreen === "update" && (
-              <UpdateScreen name={selected} busy={busy} onUpdate={handleUpdate} />
+              <ScreenBoundary name="Update">
+                <UpdateScreen name={selected} busy={busy} onUpdate={handleUpdate} />
+              </ScreenBoundary>
             )}
 
             {screen === "create" && (
-              <CreateScreen
-                onCreated={async () => {
-                  await refresh();
-                  setScreen("overview");
-                }}
-              />
+              <ScreenBoundary name="Create Instance">
+                <CreateScreen
+                  onCreated={async () => {
+                    await refresh();
+                    setScreen("overview");
+                  }}
+                />
+              </ScreenBoundary>
             )}
 
             {screen === "adopt" && (
-              <AdoptScreen
-                onAdopted={async () => {
-                  await refresh();
-                  setScreen("overview");
-                }}
-              />
+              <ScreenBoundary name="Adopt Instance">
+                <AdoptScreen
+                  onAdopted={async () => {
+                    await refresh();
+                    setScreen("overview");
+                  }}
+                />
+              </ScreenBoundary>
             )}
 
-            {selected && effectiveScreen === "config" && <SettingsScreen name={selected} onAddons={()=>setAddonsOpen(true)} />}
+            {selected && effectiveScreen === "config" && <ScreenBoundary name="Settings"><SettingsScreen name={selected} onAddons={()=>setAddonsOpen(true)} /></ScreenBoundary>}
 
-            {selected && effectiveScreen === "modules" && <ModulesScreen name={selected} toast={toast} />}
+            {selected && effectiveScreen === "modules" && <ScreenBoundary name="Modules"><ModulesScreen name={selected} toast={toast} /></ScreenBoundary>}
 
-            {selected && effectiveScreen === "doctor" && <DoctorScreen name={selected} />}
+            {selected && effectiveScreen === "doctor" && <ScreenBoundary name="Doctor"><DoctorScreen name={selected} /></ScreenBoundary>}
 
-            {selected && effectiveScreen === "terminal" && <TerminalScreen name={selected} />}
-            {selected && effectiveScreen === "cron" && <CronScreen name={selected} />}
-            {selected && effectiveScreen === "records" && <RecordsScreen name={selected} />}
-            {selected && effectiveScreen === "depgraph" && <DepGraphScreen name={selected} />}
-            {selected && effectiveScreen === "scaffold" && <ScaffoldScreen name={selected} />}
-            {selected && effectiveScreen === "clone" && <CloneScreen name={selected} onCloned={async () => { await refresh(); setScreen("overview") }} />}
-            {selected && effectiveScreen === "modelinspector" && <ModelInspectorScreen name={selected} />}
-            {selected && effectiveScreen === "backups" && <BackupsScreen name={selected} />}
-            {screen === "systemcheck" && <SystemCheckScreen />}
-            {screen === "dashboard" && <DashboardScreen />}
-            {screen === "marketplace" && <MarketplaceScreen />}
+            {selected && effectiveScreen === "terminal" && <ScreenBoundary name="Terminal"><TerminalScreen name={selected} /></ScreenBoundary>}
+            {selected && effectiveScreen === "cron" && <ScreenBoundary name="Cron Jobs"><CronScreen name={selected} /></ScreenBoundary>}
+            {selected && effectiveScreen === "records" && <ScreenBoundary name="Records"><RecordsScreen name={selected} /></ScreenBoundary>}
+            {selected && effectiveScreen === "depgraph" && <ScreenBoundary name="Dependency Graph"><DepGraphScreen name={selected} /></ScreenBoundary>}
+            {selected && effectiveScreen === "scaffold" && <ScreenBoundary name="Scaffold"><ScaffoldScreen name={selected} /></ScreenBoundary>}
+            {selected && effectiveScreen === "clone" && <ScreenBoundary name="Clone"><CloneScreen name={selected} onCloned={async () => { await refresh(); setScreen("overview") }} /></ScreenBoundary>}
+            {selected && effectiveScreen === "modelinspector" && <ScreenBoundary name="Model Inspector"><ModelInspectorScreen name={selected} /></ScreenBoundary>}
+            {selected && effectiveScreen === "backups" && <ScreenBoundary name="Backups"><BackupsScreen name={selected} /></ScreenBoundary>}
+            {screen === "systemcheck" && <ScreenBoundary name="System Check"><SystemCheckScreen /></ScreenBoundary>}
+            {screen === "dashboard" && <ScreenBoundary name="Dashboard"><DashboardScreen /></ScreenBoundary>}
+            {screen === "marketplace" && <ScreenBoundary name="Marketplace"><MarketplaceScreen /></ScreenBoundary>}
           </div>
         }
         eventLog={

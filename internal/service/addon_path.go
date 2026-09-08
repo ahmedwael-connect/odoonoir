@@ -126,7 +126,9 @@ func (s *Service) RemoveAddonPath(name, path string) ([]AddonPathEntry, error) {
 	}
 	// try remove from active
 	if err := conf.AddonsRemove(path); err == nil {
-		_ = conf.Save()
+		if err := conf.Save(); err != nil {
+			return nil, fmt.Errorf("save odoo.conf: %w", err)
+		}
 		return s.ListAddonPaths(name)
 	}
 	// try remove from raw (disabled)
@@ -135,7 +137,9 @@ func (s *Service) RemoveAddonPath(name, path string) ([]AddonPathEntry, error) {
 			if re.Path == path {
 				// rebuild without this disabled entry
 				conf.RemoveRawAddonsEntry(path)
-				_ = conf.Save()
+				if err := conf.Save(); err != nil {
+					return nil, fmt.Errorf("save odoo.conf: %w", err)
+				}
 				return s.ListAddonPaths(name)
 			}
 		}
@@ -160,7 +164,9 @@ func (s *Service) ToggleAddonPath(name, path string, enable bool) ([]AddonPathEn
 			for _, re := range raw {
 				if re.Path == path && !re.Enabled {
 					conf.EnableAddonsPath(path)
-					_ = conf.Save()
+					if err := conf.Save(); err != nil {
+						return nil, fmt.Errorf("save odoo.conf: %w", err)
+					}
 					return s.ListAddonPaths(name)
 				}
 			}
@@ -181,7 +187,9 @@ func (s *Service) ToggleAddonPath(name, path string, enable bool) ([]AddonPathEn
 		return nil, fmt.Errorf("path %q not found enabled", path)
 	}
 	conf.DisableAddonsPath(path)
-	_ = conf.Save()
+	if err := conf.Save(); err != nil {
+		return nil, fmt.Errorf("save odoo.conf: %w", err)
+	}
 	return s.ListAddonPaths(name)
 }
 
@@ -217,7 +225,9 @@ func (s *Service) MoveAddonPath(name string, from, to int) ([]AddonPathEntry, er
 	if err := conf.SetAddonsPath(newPaths); err != nil {
 		return nil, err
 	}
-	_ = conf.Save()
+	if err := conf.Save(); err != nil {
+		return nil, fmt.Errorf("save odoo.conf: %w", err)
+	}
 	return s.ListAddonPaths(name)
 }
 
