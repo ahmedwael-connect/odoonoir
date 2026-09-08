@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react"
+import { useEffect, useRef, useState, useCallback, useDeferredValue } from "react"
 import * as d3 from "d3"
 import { ModuleDepGraph, Databases, ValidateDBConfig } from "../../bindings/github.com/ahmed/odoonoir/gui/app"
 import type { DatabaseView } from "../../bindings/github.com/ahmed/odoonoir/internal/service/models"
@@ -17,6 +17,7 @@ export function DepGraphScreen({ name }: { name: string }) {
   const [graph, setGraph] = useState<{ nodes: Node[]; links: Link[] } | null>(null)
   const [loading, setLoading] = useState(false)
   const [filter, setFilter] = useState("")
+  const deferredFilter = useDeferredValue(filter)
   const [onlyInstalled, setOnlyInstalled] = useState(false)
   const svgRef = useRef<SVGSVGElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -57,7 +58,7 @@ export function DepGraphScreen({ name }: { name: string }) {
     const zoom = d3.zoom<SVGSVGElement, unknown>().scaleExtent([0.2, 3]).on("zoom", e => g.attr("transform", e.transform))
     svg.call(zoom as any)
 
-    const filteredNodes = filter ? graph.nodes.filter(n => n.name.toLowerCase().includes(filter.toLowerCase()) || n.state.toLowerCase().includes(filter.toLowerCase())) : graph.nodes
+    const filteredNodes = deferredFilter ? graph.nodes.filter(n => n.name.toLowerCase().includes(deferredFilter.toLowerCase()) || n.state.toLowerCase().includes(deferredFilter.toLowerCase())) : graph.nodes
     const idSet = new Set(filteredNodes.map(n => n.id))
     const filteredLinks = graph.links.filter(l => {
       const s = typeof l.source === "string" ? l.source : (l.source as Node).id
@@ -93,7 +94,7 @@ export function DepGraphScreen({ name }: { name: string }) {
     })
 
     return () => { sim.stop(); tooltip.remove() }
-  }, [graph, filter])
+  }, [graph, deferredFilter])
 
   return (
     <div className="screen">

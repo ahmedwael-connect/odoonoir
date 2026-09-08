@@ -168,6 +168,40 @@ func (s *Service) Instances() ([]InstanceView, error) {
 	return out, nil
 }
 
+// Statuses returns live status for all instances in one call (avoids N+1 from frontend).
+func (s *Service) Statuses() ([]StatusView, error) {
+	all, err := s.reg.All()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]StatusView, 0, len(all))
+	for _, inst := range all {
+		p := inst.ResolvePaths(s.rootFor(inst))
+		mgr := proc.New(p, installer.PythonFor(inst, p), p.Conf, inst.LongpollPort)
+		status, pid, err := mgr.Status()
+		if err != nil {
+			status = instance.StatusUnknown
+		}
+		out = append(out, StatusView{
+			Instance: InstanceView{
+				Name:    inst.Name,
+				Version: inst.Version,
+				Status:  status,
+				PID:     pid,
+				Port:    inst.Port,
+				DBName:  inst.DBName,
+				DBs:     len(inst.AllDBs()),
+				Path:    p.Root,
+				Adopted: inst.Adopted,
+			},
+			Serving: mgr.ServingDB(),
+			Conf:    p.Conf,
+			Log:     p.Log,
+		})
+	}
+	return out, nil
+}
+
 // StatusView is the runtime detail of a single instance.
 type StatusView struct {
 	Instance InstanceView `json:"Instance"`
@@ -899,16 +933,24 @@ func (s *Service) GetDashboardMetrics() (*DashboardMetrics, error) {
 		metrics.HostDiskPercent = du.UsedPercent
 	}
 
+	// Collect all DB names across all instances for batch size lookup
+	var allDBNames []string
+	for _, inst := range instances {
+		allDBNames = append(allDBNames, inst.AllDBs()...)
+	}
+	batchSizes, _ := s.pg.BatchDatabaseInfo(allDBNames)
+
 	for _, inst := range instances {
 		p := inst.ResolvePaths(s.rootFor(inst))
 		mgr := proc.New(p, installer.PythonFor(inst, p), p.Conf, inst.LongpollPort)
 		status, pid, _ := mgr.Status()
 
-		dbCount := len(inst.AllDBs())
+		dbNames := inst.AllDBs()
+		dbCount := len(dbNames)
 		var sizeBytes int64
-		for _, dbName := range inst.AllDBs() {
-			if sz, err := s.pg.DatabaseSize(dbName); err == nil {
-				sizeBytes += sz
+		for _, dbName := range dbNames {
+			if bi, ok := batchSizes[dbName]; ok {
+				sizeBytes += bi.Size
 			}
 		}
 		metrics.TotalDatabases += dbCount

@@ -14,7 +14,7 @@ import (
 )
 
 // Version is the CLI build version (overridable via -ldflags).
-var Version = "0.21.0"
+var Version = "0.22.0"
 
 var (
 	cfg         *config.Config

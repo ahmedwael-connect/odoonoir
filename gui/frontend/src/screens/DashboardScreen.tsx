@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useCallback, useMemo } from "react"
 import { GetDashboardMetrics, GetSlowQueries, GetFlameGraph, Instances } from "../../bindings/github.com/ahmed/odoonoir/gui/app"
 import { useToast } from "../App"
 import { Button } from "../components/atoms/Button"
@@ -48,24 +48,30 @@ export function DashboardScreen() {
   if (loading && !data) return <div className="screen"><div className="card"><div className="p-6">Loading dashboard…</div></div></div>
   if (!data) return <div className="screen"><div className="card"><div className="empty">No data — <Button variant="primary" onClick={load}>Load</Button></div></div></div>
 
-  const spark = (vals:number[], max=100) => {
-    if (vals.length<2) return null
-    const w=80,h=24, step=w/(vals.length-1)
-    const pts = vals.map((v,i)=> `${i*step},${h - (v/max)*h}`).join(" ")
+  const cpuHistory = useMemo(() => history.map(h => h.cpu), [history])
+  const memHistory = useMemo(() => history.map(h => h.mem), [history])
+
+  const spark = useCallback((vals: number[], max = 100) => {
+    if (vals.length < 2) return null
+    const w = 80, h = 24, step = w / (vals.length - 1)
+    const pts = vals.map((v, i) => `${i * step},${h - (v / max) * h}`).join(" ")
     return <svg width={w} height={h} className="mt-1"><polyline fill="none" stroke="var(--primary)" strokeWidth="1.5" points={pts} /></svg>
-  }
+  }, [])
+
+  const cpuSpark = useMemo(() => spark(cpuHistory), [cpuHistory, spark])
+  const memSpark = useMemo(() => spark(memHistory), [memHistory, spark])
 
   return (
     <div className="screen space-y-4">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="card p-4"><div className="text-xs text-muted-foreground">Instances</div><div className="text-2xl font-bold">{data.TotalInstances ?? data.totalInstances ?? 0}</div><div className="text-xs">{data.RunningInstances ?? data.runningInstances ?? 0} running • {data.StoppedInstances ?? data.stoppedInstances ?? 0} stopped</div></div>
         <div className="card p-4"><div className="text-xs text-muted-foreground">Databases</div><div className="text-2xl font-bold">{data.TotalDatabases ?? data.totalDatabases ?? 0}</div><div className="text-xs">{((data.TotalSizeBytes ?? data.totalSizeBytes ?? 0) / 1024/1024).toFixed(1)} MB total</div></div>
-        <div className="card p-4"><div className="text-xs text-muted-foreground">Alerts</div><div className="text-2xl font-bold">{(data.Alerts ?? data.alerts ?? []).length}</div><div className="text-xs">health & backup • live</div>{spark(history.map(h=>h.cpu))}</div>
-        <div className="card p-4"><div className="text-xs text-muted-foreground">Health</div><div className="text-2xl font-bold">{data.InstanceMetrics ? Math.round(data.InstanceMetrics.reduce((a:number,c:any)=>a+(c.HealthScore||c.healthScore||0),0) / Math.max(1,data.InstanceMetrics.length)) : 0}%</div><div className="text-xs">avg score {spark(history.map(h=>h.mem))}</div></div>
+        <div className="card p-4"><div className="text-xs text-muted-foreground">Alerts</div><div className="text-2xl font-bold">{(data.Alerts ?? data.alerts ?? []).length}</div><div className="text-xs">health & backup • live</div>{cpuSpark}</div>
+        <div className="card p-4"><div className="text-xs text-muted-foreground">Health</div><div className="text-2xl font-bold">{data.InstanceMetrics ? Math.round(data.InstanceMetrics.reduce((a:number,c:any)=>a+(c.HealthScore||c.healthScore||0),0) / Math.max(1,data.InstanceMetrics.length)) : 0}%</div><div className="text-xs">avg score {memSpark}</div></div>
       </div>
       <div className="grid grid-cols-3 gap-4">
-        <div className="card p-3"><div className="text-xs text-muted-foreground">Host CPU</div><div className="text-lg font-bold">{(data.hostCPU ?? data.HostCPU ?? 0).toFixed(1)}%</div>{spark(history.map(h=>h.cpu))}</div>
-        <div className="card p-3"><div className="text-xs text-muted-foreground">Host Mem</div><div className="text-lg font-bold">{(data.hostMemPercent ?? data.HostMemPercent ?? 0).toFixed(1)}%</div>{spark(history.map(h=>h.mem))}</div>
+        <div className="card p-3"><div className="text-xs text-muted-foreground">Host CPU</div><div className="text-lg font-bold">{(data.hostCPU ?? data.HostCPU ?? 0).toFixed(1)}%</div>{cpuSpark}</div>
+        <div className="card p-3"><div className="text-xs text-muted-foreground">Host Mem</div><div className="text-lg font-bold">{(data.hostMemPercent ?? data.HostMemPercent ?? 0).toFixed(1)}%</div>{memSpark}</div>
         <div className="card p-3"><div className="text-xs text-muted-foreground">Host Disk</div><div className="text-lg font-bold">{(data.hostDiskPercent ?? data.HostDiskPercent ?? 0).toFixed(1)}%</div><div className="text-xs">{data.TotalInstances ?? 0} instances</div></div>
       </div>
 

@@ -41,6 +41,11 @@ func (a *App) Status(name string) (service.StatusView, error) {
 	return a.svc.Status(name)
 }
 
+// Statuses returns live status for all instances in one call.
+func (a *App) Statuses() ([]service.StatusView, error) {
+	return a.svc.Statuses()
+}
+
 // Databases lists the databases served by an instance.
 func (a *App) Databases(name string) ([]service.DatabaseView, error) {
 	return a.svc.Databases(name)

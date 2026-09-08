@@ -801,8 +801,10 @@ result = env['%s'].search_read(
     order=%s,
     context=%s
 )
-print(json.dumps(result))
-`, model, domain, jsonMarshal(fieldList), limit, offset, jsonMarshal(order), ctx)
+count = env['%s'].search_count(%s, context=%s)
+print(json.dumps({"records": result, "count": count}))
+`, model, domain, jsonMarshal(fieldList), limit, offset, jsonMarshal(order), ctx,
+		model, domain, ctx)
 
 	if err := validatePythonAndPaths(py, p); err != nil {
 		return nil, err
@@ -817,21 +819,16 @@ print(json.dumps(result))
 	}
 
 	var records []Record
-	if err := json.Unmarshal([]byte(strings.TrimSpace(string(out))), &records); err != nil {
+	var totalCount int64
+	var result struct {
+		Records []Record `json:"records"`
+		Count   int64    `json:"count"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(string(out))), &result); err != nil {
 		return nil, fmt.Errorf("parse records: %w", err)
 	}
-
-	// Get total count
-	countScript := fmt.Sprintf(`
-count = env['%s'].search_count(%s, context=%s)
-print(count)
-`, model, domain, ctx)
-	cmd2 := exec.Command(py, "-m", "odoo", "shell", "-c", p.Conf, "-d", dbName)
-	cmd2.Dir = p.Source
-	cmd2.Stdin = strings.NewReader(countScript)
-	countOut, _ := cmd2.CombinedOutput()
-	var totalCount int64
-	fmt.Sscanf(strings.TrimSpace(string(countOut)), "%d", &totalCount)
+	records = result.Records
+	totalCount = result.Count
 
 	return &RecordBrowserResult{
 		Records:    records,
