@@ -1,11 +1,11 @@
 import { useEffect, useMemo } from "react"
 
 export type GlobalScreen = "create" | "adopt" | "systemcheck" | "dashboard" | "marketplace"
-export type InstanceScreen = "overview" | "databases" | "modules" | "logs" | "terminal" | "update" | "config" | "doctor" | "cron" | "records" | "depgraph" | "scaffold" | "clone" | "modelinspector" | "backups"
+export type InstanceScreen = "overview" | "databases" | "modules" | "logs" | "terminal" | "update" | "config" | "doctor" | "cron" | "records" | "depgraph" | "scaffold" | "clone" | "modelinspector" | "backups" | "deploy"
 export type Screen = GlobalScreen | InstanceScreen
 
 const globalScreens: GlobalScreen[] = ["dashboard", "create", "adopt", "systemcheck", "marketplace"]
-const instanceScreens: InstanceScreen[] = ["overview","databases","modules","logs","terminal","update","config","doctor","cron","records","depgraph","scaffold","clone","modelinspector","backups"]
+const instanceScreens: InstanceScreen[] = ["overview","databases","modules","logs","terminal","update","config","doctor","cron","records","depgraph","scaffold","clone","modelinspector","backups","deploy"]
 
 export function isGlobalScreen(s: string): s is GlobalScreen {
   return (globalScreens as string[]).includes(s)
@@ -33,6 +33,7 @@ export const moreInstanceTabs: { id: InstanceScreen; label: string }[] = [
   { id: "clone", label: "Clone" },
   { id: "modelinspector", label: "Inspector" },
   { id: "backups", label: "Backups" },
+  { id: "deploy", label: "Deploy" },
 ]
 
 export function useInstanceNav(selected: string | null, screen: Screen, setScreen: (s: Screen)=>void) {

@@ -1,7 +1,8 @@
-import React, { useEffect, useState, useCallback, useRef, useDeferredValue, createContext, useContext } from "react";
+import React, { useEffect, useState, useCallback, useRef, useMemo, useDeferredValue, createContext, useContext } from "react";
 import { Events } from "@wailsio/runtime";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { ConfirmModal } from "./ConfirmModal";
+import { CommandPalette, type PaletteItem } from "./CommandPalette";
 import { SkeletonLines, SkeletonTable } from "./Skeleton";
 import { ModulesScreen, AdoptScreen, DoctorScreen } from "./Screens";
 import { TerminalScreen } from "./screens/TerminalScreen";
@@ -15,6 +16,7 @@ import { BackupsScreen } from "./screens/BackupsScreen";
 import { SystemCheckScreen } from "./screens/SystemCheckScreen";
 import { MarketplaceScreen } from "./screens/MarketplaceScreen";
 import { DashboardScreen } from "./screens/DashboardScreen";
+import { DeployScreen } from "./screens/DeployScreen";
 import { EnterpriseWizard } from "./components/enterprise/EnterpriseWizard";
 import { AddonPathManagerWizard } from "./components/manager/AddonPathManagerWizard";
 import { InstanceLift } from "./components/organisms/InstanceLift";
@@ -267,6 +269,7 @@ export default function App() {
   const [liftFilter, setLiftFilter] = useState("");
   const [enterpriseOpen, setEnterpriseOpen] = useState(false);
   const [addonsOpen, setAddonsOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   // keep hook for side-effect (auto-redirect global/instance)
   useInstanceNav(selected, screen, setScreen);
   useEffect(()=>{
@@ -309,6 +312,77 @@ export default function App() {
   }, []);
 
   const { busy, run, act } = useAction(refresh, refreshOne);
+
+  // Build command palette items (must be after act is defined)
+  const paletteItems: PaletteItem[] = useMemo(() => {
+    const items: PaletteItem[] = [];
+    for (const inst of instances) {
+      items.push({
+        id: `inst:${inst.name}`,
+        label: inst.name,
+        category: "instance",
+        hint: `v${inst.version} port ${inst.port}`,
+        icon: statuses[inst.name]?.Instance?.status === "running" ? "▶" : "■",
+        action: () => { setSelected(inst.name); setScreen("overview"); },
+      });
+    }
+    const instanceScreens: { screen: Screen; label: string; icon: string; needsInstance: boolean }[] = [
+      { screen: "overview", label: "Overview", icon: "📊", needsInstance: true },
+      { screen: "databases", label: "Databases", icon: "🗄", needsInstance: true },
+      { screen: "logs", label: "Logs", icon: "📜", needsInstance: true },
+      { screen: "modules", label: "Modules", icon: "📦", needsInstance: true },
+      { screen: "terminal", label: "Terminal", icon: "💻", needsInstance: true },
+      { screen: "records", label: "Records", icon: "📋", needsInstance: true },
+      { screen: "config", label: "Settings", icon: "⚙", needsInstance: true },
+      { screen: "cron", label: "Cron Jobs", icon: "⏰", needsInstance: true },
+      { screen: "depgraph", label: "Dependencies", icon: "🔀", needsInstance: true },
+      { screen: "scaffold", label: "Scaffold", icon: "🏗", needsInstance: true },
+      { screen: "modelinspector", label: "Model Inspector", icon: "🔍", needsInstance: true },
+      { screen: "backups", label: "Backups", icon: "💾", needsInstance: true },
+      { screen: "clone", label: "Clone", icon: "📋", needsInstance: true },
+      { screen: "doctor", label: "Doctor", icon: "🩺", needsInstance: true },
+      { screen: "deploy", label: "Deploy", icon: "🚀", needsInstance: true },
+    ];
+    for (const s of instanceScreens) {
+      if (s.needsInstance && !selected) continue;
+      items.push({
+        id: `screen:${s.screen}`,
+        label: s.label,
+        category: "screen",
+        icon: s.icon,
+        hint: selected ? `${selected} › ${s.label}` : undefined,
+        action: () => setScreen(s.screen),
+      });
+    }
+    items.push(
+      { id: "screen:create", label: "Create Instance", category: "action", icon: "➕", action: () => setScreen("create") },
+      { id: "screen:adopt", label: "Adopt Instance", category: "action", icon: "🔗", action: () => setScreen("adopt") },
+      { id: "screen:marketplace", label: "Marketplace", category: "action", icon: "🏪", action: () => setScreen("marketplace") },
+      { id: "screen:dashboard", label: "Dashboard", category: "action", icon: "📈", action: () => setScreen("dashboard") },
+      { id: "screen:systemcheck", label: "System Check", category: "action", icon: "🔬", action: () => setScreen("systemcheck") },
+    );
+    if (selected) {
+      items.push(
+        { id: "act:start", label: `Start ${selected}`, category: "action", icon: "▶", action: () => act(selected, "start") },
+        { id: "act:stop", label: `Stop ${selected}`, category: "action", icon: "■", action: () => act(selected, "stop") },
+        { id: "act:restart", label: `Restart ${selected}`, category: "action", icon: "↻", action: () => act(selected, "restart") },
+        { id: "act:update", label: `Update ${selected}`, category: "action", icon: "⬆", action: () => { setScreen("update"); } },
+      );
+    }
+    return items;
+  }, [instances, statuses, selected, act, setScreen]);
+
+  // ⌘K keyboard handler
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
 
   /* Boot + event listeners */
   useEffect(() => {
@@ -437,11 +511,7 @@ export default function App() {
             instanceCount={instances.length}
             eventCount={eventLog.length}
             onToggleLift={() => setSidebarOpen(!sidebarOpen)}
-            onOpenPalette={() => {
-              const el = document.querySelector<HTMLInputElement>('[placeholder="Filter instances…"]')
-              el?.focus()
-              toast("Press ⌘K for palette (coming soon)", "info")
-            }}
+            onOpenPalette={() => setPaletteOpen(true)}
             onToggleEventLog={() => setEventLogOpen(!eventLogOpen)}
           />
         }
@@ -577,6 +647,7 @@ export default function App() {
             {selected && effectiveScreen === "clone" && <ScreenBoundary name="Clone"><CloneScreen name={selected} onCloned={async () => { await refresh(); setScreen("overview") }} /></ScreenBoundary>}
             {selected && effectiveScreen === "modelinspector" && <ScreenBoundary name="Model Inspector"><ModelInspectorScreen name={selected} /></ScreenBoundary>}
             {selected && effectiveScreen === "backups" && <ScreenBoundary name="Backups"><BackupsScreen name={selected} /></ScreenBoundary>}
+            {selected && effectiveScreen === "deploy" && <ScreenBoundary name="Deploy"><DeployScreen name={selected} /></ScreenBoundary>}
             {screen === "systemcheck" && <ScreenBoundary name="System Check"><SystemCheckScreen /></ScreenBoundary>}
             {screen === "dashboard" && <ScreenBoundary name="Dashboard"><DashboardScreen /></ScreenBoundary>}
             {screen === "marketplace" && <ScreenBoundary name="Marketplace"><MarketplaceScreen /></ScreenBoundary>}
@@ -617,6 +688,12 @@ export default function App() {
             </div>
           </div>
         }
+      />
+
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        items={paletteItems}
       />
 
       <ConfirmModal
@@ -1103,15 +1180,37 @@ function LogsScreen({ name }: { name: string }) {
   const offsetRef = useRef(0);
   const [follow, setFollow] = useState(true);
   const [search, setSearch] = useState("");
+  const [useRegex, setUseRegex] = useState(false);
+  const [levelFilter, setLevelFilter] = useState<string>("all");
   const deferredSearch = useDeferredValue(search);
   const endRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const filtered = React.useMemo(
-    () => deferredSearch ? lines.filter((l) => l.toLowerCase().includes(deferredSearch.toLowerCase())) : lines,
-    [lines, deferredSearch]
-  );
-  const matchCount = deferredSearch ? filtered.length : 0;
+  const filtered = React.useMemo(() => {
+    let result = lines;
+    // Level filter
+    if (levelFilter !== "all") {
+      const lvl = levelFilter.toUpperCase();
+      result = result.filter((l) => l.toUpperCase().includes(lvl));
+    }
+    // Search filter
+    if (deferredSearch) {
+      if (useRegex) {
+        try {
+          const re = new RegExp(deferredSearch, "i");
+          result = result.filter((l) => re.test(l));
+        } catch {
+          // invalid regex — show no matches
+          result = [];
+        }
+      } else {
+        const q = deferredSearch.toLowerCase();
+        result = result.filter((l) => l.toLowerCase().includes(q));
+      }
+    }
+    return result;
+  }, [lines, deferredSearch, useRegex, levelFilter]);
+  const matchCount = deferredSearch || levelFilter !== "all" ? filtered.length : 0;
 
   useEffect(() => {
     offsetRef.current = 0;
@@ -1156,14 +1255,25 @@ function LogsScreen({ name }: { name: string }) {
       <div className="card">
         <div className="card-header">
           <h2>Logs</h2>
-          <div className="action-row">
+          <div className="action-row flex-wrap gap-2">
             <input
               className="search-input"
-              placeholder="Filter logs…"
+              placeholder={useRegex ? "Regex filter…" : "Filter logs…"}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
             {search && <span className="search-count">{matchCount} matches</span>}
+            <label className="text-xs flex items-center gap-1 cursor-pointer border rounded px-2 py-1 bg-card hover:bg-accent" title="Use regex">
+              <input type="checkbox" checked={useRegex} onChange={(e) => setUseRegex(e.target.checked)} className="hidden" />
+              <span className={`font-mono text-xs ${useRegex ? "text-primary font-bold" : "text-muted-foreground"}`}>.*</span>
+            </label>
+            <select className="field-input text-xs" style={{ minWidth: 90 }} value={levelFilter} onChange={(e) => setLevelFilter(e.target.value)}>
+              <option value="all">All levels</option>
+              <option value="WARNING">Warning</option>
+              <option value="ERROR">Error</option>
+              <option value="CRITICAL">Critical</option>
+              <option value="INFO">Info</option>
+            </select>
             <label className="checkbox-label">
               <input
                 type="checkbox"
@@ -1471,12 +1581,18 @@ function SettingsScreen({ name, onAddons }: { name: string; onAddons?: () => voi
   const [loading, setLoading] = useState(true);
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState("");
+  const [expandedCats, setExpandedCats] = useState<Record<string, boolean>>({});
 
   const loadConf = useCallback(async () => {
     try {
       setLoading(true);
       const list = await ReadConf(name);
       setEntries(list);
+      // Auto-expand all categories on first load
+      const cats: Record<string, boolean> = {};
+      for (const e of list) { cats[categoryForKey(e.key)] = true; }
+      setExpandedCats(cats);
     } catch (e) {
       toast(String(e), "error");
     } finally {
@@ -1507,13 +1623,35 @@ function SettingsScreen({ name, onAddons }: { name: string; onAddons?: () => voi
     }
   };
 
+  // Group entries by category
+  const filtered = search
+    ? entries.filter((e) => e.key.toLowerCase().includes(search.toLowerCase()) || (e.value || "").toLowerCase().includes(search.toLowerCase()))
+    : entries;
+
+  const grouped = React.useMemo(() => {
+    const groups: Record<string, ConfEntry[]> = {};
+    for (const e of filtered) {
+      const cat = categoryForKey(e.key);
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push(e);
+    }
+    return groups;
+  }, [filtered]);
+
+  const toggleCat = (cat: string) => setExpandedCats((prev) => ({ ...prev, [cat]: !prev[cat] }));
+
+  const categoryIcons: Record<string, string> = {
+    Server: "🖥", Database: "🗄", Paths: "📁", Workers: "⚙", Logging: "📜", Email: "📧", Misc: "📎",
+  };
+
   return (
     <div className="screen">
       <div className="card">
         <div className="card-header">
           <h2>Config — {name}</h2>
-          <div className="action-row">
+          <div className="action-row flex-wrap gap-2">
             {onAddons && <Button variant="secondary" size="sm" iconLeft={<Folder className="h-4 w-4" />} onClick={onAddons}>Addons Path</Button>}
+            <input className="search-input" placeholder="Search config…" value={search} onChange={(e) => setSearch(e.target.value)} />
             {Object.keys(edits).length > 0 && (
               <span className="search-count">{Object.keys(edits).length} unsaved</span>
             )}
@@ -1534,38 +1672,31 @@ function SettingsScreen({ name, onAddons }: { name: string; onAddons?: () => voi
           <SkeletonLines count={6} widths={["w80", "w60", "w80", "w60", "w40", "w80"]} />
         ) : entries.length === 0 ? (
           <div className="empty">No config entries found.</div>
-        ) : (
+        ) : search ? (
           <div className="conf-list">
-            {entries.map((e) => (
-              <div
-                key={e.key}
-                className={`conf-row ${edits[e.key] !== undefined ? "dirty" : ""}`}
-              >
-                <span className="conf-key mono">{e.key}</span>
-                <input
-                  className="conf-value mono"
-                  value={edits[e.key] ?? e.value}
-                  onChange={(ev) =>
-                    setEdits((prev) => ({ ...prev, [e.key]: ev.target.value }))
-                  }
-                  title={e.active ? "Active" : "Commented out"}
-                />
-                {!e.active && <span className="pill commented">off</span>}
-                {edits[e.key] !== undefined && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    title="Revert to original"
-                    onClick={() =>
-                      setEdits((prev) => {
-                        const next = { ...prev };
-                        delete next[e.key];
-                        return next;
-                      })
-                    }
-                  >
-                    ↩
-                  </Button>
+            {filtered.map((e) => (
+              <ConfRow key={e.key} entry={e} edits={edits} setEdits={setEdits} />
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-1">
+            {Object.entries(grouped).map(([cat, catEntries]) => (
+              <div key={cat}>
+                <button
+                  className="w-full text-left px-3 py-2 flex items-center gap-2 text-sm font-medium hover:bg-muted rounded-lg transition-colors"
+                  onClick={() => toggleCat(cat)}
+                >
+                  <span>{categoryIcons[cat] || "📎"}</span>
+                  <span className="flex-1">{cat}</span>
+                  <span className="text-xs text-muted-foreground">{catEntries.length} keys</span>
+                  <span className="text-muted-foreground">{expandedCats[cat] ? "▾" : "▸"}</span>
+                </button>
+                {expandedCats[cat] && (
+                  <div className="conf-list ml-2">
+                    {catEntries.map((e) => (
+                      <ConfRow key={e.key} entry={e} edits={edits} setEdits={setEdits} />
+                    ))}
+                  </div>
                 )}
               </div>
             ))}
@@ -1574,4 +1705,48 @@ function SettingsScreen({ name, onAddons }: { name: string; onAddons?: () => voi
       </div>
     </div>
   );
+}
+
+function ConfRow({ entry, edits, setEdits }: { entry: ConfEntry; edits: Record<string, string>; setEdits: React.Dispatch<React.SetStateAction<Record<string, string>>> }) {
+  return (
+    <div className={`conf-row ${edits[entry.key] !== undefined ? "dirty" : ""}`}>
+      <span className="conf-key mono">{entry.key}</span>
+      <input
+        className="conf-value mono"
+        value={edits[entry.key] ?? entry.value}
+        onChange={(ev) =>
+          setEdits((prev) => ({ ...prev, [entry.key]: ev.target.value }))
+        }
+        title={entry.active ? "Active" : "Commented out"}
+      />
+      {!entry.active && <span className="pill commented">off</span>}
+      {edits[entry.key] !== undefined && (
+        <Button
+          variant="ghost"
+          size="sm"
+          title="Revert to original"
+          onClick={() =>
+            setEdits((prev) => {
+              const next = { ...prev };
+              delete next[entry.key];
+              return next;
+            })
+          }
+        >
+          ↩
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function categoryForKey(key: string): string {
+  const k = key.toLowerCase();
+  if (k.startsWith("db_") || k.includes("database")) return "Database";
+  if (k.includes("addons_path") || k.includes("data_dir") || k.includes("logs_dir") || k.includes("pidfile") || k.includes("conf") || k.includes("path")) return "Paths";
+  if (k.includes("worker") || k.includes("limit_") || k.includes("max_cron")) return "Workers";
+  if (k.includes("log_") || k.includes("logfile") || k.includes("debug") || k.includes("i18n")) return "Logging";
+  if (k.includes("smtp") || k.includes("email") || k.includes("mail")) return "Email";
+  if (k.includes("server") || k.includes("http") || k.includes("longpolling") || k.includes("proxy") || k.includes("db_port") || k.includes("db_host") || k.includes("db_user") || k.includes("db_password") || k.includes("db_name")) return "Server";
+  return "Misc";
 }

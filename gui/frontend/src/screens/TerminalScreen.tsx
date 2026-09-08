@@ -4,11 +4,16 @@ import type { DatabaseView } from "../../bindings/github.com/ahmed/odoonoir/inte
 import { useToast } from "../App"
 import { Button } from "../components/atoms/Button"
 
+const MAX_RECONNECT_ATTEMPTS = 5
+const BASE_RECONNECT_DELAY = 1000
+
 export function TerminalScreen({ name }: { name: string }) {
   const { toast } = useToast()
   const termRef = useRef<HTMLDivElement>(null)
   const xtermRef = useRef<any>(null)
   const wsRef = useRef<WebSocket | null>(null)
+  const reconnectAttempts = useRef(0)
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [databases, setDatabases] = useState<DatabaseView[]>([])
   const [dbName, setDbName] = useState("")
   const [connected, setConnected] = useState(false)
@@ -17,6 +22,7 @@ export function TerminalScreen({ name }: { name: string }) {
   const [configWarns, setConfigWarns] = useState<string[]>([])
   const [systemCmd, setSystemCmd] = useState<string>("")
   const [showSystem, setShowSystem] = useState(false)
+  const [reconnecting, setReconnecting] = useState(false)
 
   const loadDbs = useCallback(async () => {
     setDbError(null)
@@ -94,13 +100,44 @@ export function TerminalScreen({ name }: { name: string }) {
       ws = new WebSocket(shellUrl)
       wsRef.current = ws
       ws.binaryType = "arraybuffer"
-      ws.onopen = () => { setConnected(true); term.writeln("\r\n[Connected to Odoo Shell — history ↑↓, Ctrl+L clear, snippets below]\r\n") }
+      ws.onclose = () => {
+        setConnected(false)
+        // Auto-reconnect with exponential backoff
+        if (!cancelled && reconnectAttempts.current < MAX_RECONNECT_ATTEMPTS) {
+          const delay = BASE_RECONNECT_DELAY * Math.pow(2, reconnectAttempts.current)
+          reconnectAttempts.current++
+          setReconnecting(true)
+          term.writeln(`\r\n[Disconnected — reconnecting in ${delay / 1000}s (attempt ${reconnectAttempts.current}/${MAX_RECONNECT_ATTEMPTS})…]\r\n`)
+          reconnectTimer.current = setTimeout(() => {
+            if (!cancelled && shellUrl) {
+              // Re-trigger by updating shellUrl ref (same URL, fresh WS)
+              setShellUrl(u => u)
+            }
+          }, delay)
+        } else {
+          term.writeln("\r\n[Disconnected — Reconnect to continue]\r\n")
+          setReconnecting(false)
+        }
+      }
+      ws.onerror = () => {
+        setConnected(false)
+        if (reconnectAttempts.current >= MAX_RECONNECT_ATTEMPTS) {
+          const msg = `[Connection error — ${shellUrl} — check DB, python, odoo-bin. Try System terminal below]`
+          term.writeln("\r\n" + msg + "\r\n")
+          setDbError(msg)
+          setReconnecting(false)
+        }
+      }
+      ws.onopen = () => {
+        setConnected(true)
+        reconnectAttempts.current = 0
+        setReconnecting(false)
+        term.writeln("\r\n[Connected to Odoo Shell — history ↑↓, Ctrl+L clear, snippets below]\r\n")
+      }
       ws.onmessage = (ev) => {
         if (ev.data instanceof ArrayBuffer) term.write(new TextDecoder().decode(ev.data))
         else term.write(ev.data)
       }
-      ws.onclose = () => { setConnected(false); term.writeln("\r\n[Disconnected — Reconnect to continue]\r\n") }
-      ws.onerror = () => { setConnected(false); const msg=`[Connection error — ${shellUrl} — check DB, python, odoo-bin. Try System terminal below]`; term.writeln("\r\n"+msg+"\r\n"); setDbError(msg) }
       let buf = ""
       term.onData((data: string) => {
         // handle history and clear
@@ -136,9 +173,12 @@ export function TerminalScreen({ name }: { name: string }) {
     })()
     return () => {
       cancelled = true
+      if (reconnectTimer.current) clearTimeout(reconnectTimer.current)
       try { wsRef.current?.close() } catch {}
       try { xtermRef.current?.dispose() } catch {}
       setConnected(false)
+      setReconnecting(false)
+      reconnectAttempts.current = 0
     }
   }, [shellUrl, name, dbName])
 
@@ -153,9 +193,9 @@ export function TerminalScreen({ name }: { name: string }) {
               {databases.map(d => <option key={d.name} value={d.name}>{d.name}{d.primary?" (primary)":""}</option>)}
             </select>
             <Button variant="primary" onClick={connect} disabled={!dbName || connected}>Connect</Button>
-            <Button variant="outline" onClick={() => { wsRef.current?.close(); setShellUrl("") }} disabled={!connected}>Disconnect</Button>
+            <Button variant="outline" onClick={() => { wsRef.current?.close(); setShellUrl(""); reconnectAttempts.current = MAX_RECONNECT_ATTEMPTS }} disabled={!connected}>Disconnect</Button>
             <Button variant="ghost" size="sm" onClick={showSystemTerminal} disabled={!dbName}>System terminal</Button>
-            <span className={`pill ${connected ? "running" : "stopped"}`}>{connected ? "connected" : "disconnected"}</span>
+            <span className={`pill ${connected ? "running" : reconnecting ? "updating" : "stopped"}`}>{connected ? "connected" : reconnecting ? "reconnecting…" : "disconnected"}</span>
           </div>
         </div>
         {configWarns.length > 0 && (
