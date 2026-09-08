@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +20,17 @@ import (
 	"github.com/ahmed/odoonoir/internal/updater"
 	"github.com/fsnotify/fsnotify"
 )
+
+// validPythonModelName restricts Odoo model names to safe characters for Python string interpolation.
+// Models follow the pattern: module.model_name (letters, digits, underscores, dots).
+var validPythonModelName = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_.]*$`)
+
+func sanitizeModelName(model string) (string, error) {
+	if !validPythonModelName.MatchString(model) {
+		return "", fmt.Errorf("invalid model name %q: must start with a letter and contain only letters, digits, underscores, or dots", model)
+	}
+	return model, nil
+}
 
 // DatabaseView is a GUI-friendly database row.
 type DatabaseView struct {
@@ -774,6 +786,11 @@ func (s *Service) BrowseRecords(name, dbName string, opts RecordBrowserOptions) 
 	p := inst.ResolvePaths(s.rootFor(inst))
 	py := installer.PythonFor(inst, p)
 
+	model, err := sanitizeModelName(opts.Model)
+	if err != nil {
+		return nil, err
+	}
+
 	script := fmt.Sprintf(`
 import json
 result = env['%s'].search_read(
@@ -785,7 +802,7 @@ result = env['%s'].search_read(
     context=%s
 )
 print(json.dumps(result))
-`, opts.Model, domain, jsonMarshal(fieldList), limit, offset, jsonMarshal(order), ctx)
+`, model, domain, jsonMarshal(fieldList), limit, offset, jsonMarshal(order), ctx)
 
 	if err := validatePythonAndPaths(py, p); err != nil {
 		return nil, err
@@ -808,7 +825,7 @@ print(json.dumps(result))
 	countScript := fmt.Sprintf(`
 count = env['%s'].search_count(%s, context=%s)
 print(count)
-`, opts.Model, domain, ctx)
+`, model, domain, ctx)
 	cmd2 := exec.Command(py, "-m", "odoo", "shell", "-c", p.Conf, "-d", dbName)
 	cmd2.Dir = p.Source
 	cmd2.Stdin = strings.NewReader(countScript)
@@ -840,6 +857,11 @@ func (s *Service) CreateRecord(name, dbName string, input RecordCreateInput) (in
 		return 0, err
 	}
 
+	model, err := sanitizeModelName(input.Model)
+	if err != nil {
+		return 0, err
+	}
+
 	valuesJSON, _ := json.Marshal(input.Values)
 	ctx := "{}"
 	if input.Context != nil {
@@ -852,7 +874,7 @@ import json
 vals = %s
 record = env['%s'].with_context(%s).create(vals)
 print(record.id)
-`, string(valuesJSON), input.Model, ctx)
+`, string(valuesJSON), model, ctx)
 
 	cmd := exec.Command(py, "-m", "odoo", "shell", "-c", p.Conf, "-d", dbName)
 	cmd.Dir = p.Source
@@ -882,6 +904,11 @@ func (s *Service) UpdateRecord(name, dbName string, input RecordUpdateInput) err
 		return err
 	}
 
+	model, err := sanitizeModelName(input.Model)
+	if err != nil {
+		return err
+	}
+
 	valuesJSON, _ := json.Marshal(input.Values)
 	ctx := "{}"
 	if input.Context != nil {
@@ -894,7 +921,7 @@ vals = %s
 record = env['%s'].with_context(%s).browse(%d)
 record.write(vals)
 print('OK')
-`, string(valuesJSON), input.Model, ctx, input.ID)
+`, string(valuesJSON), model, ctx, input.ID)
 
 	cmd := exec.Command(py, "-m", "odoo", "shell", "-c", p.Conf, "-d", dbName)
 	cmd.Dir = p.Source
@@ -921,6 +948,12 @@ func (s *Service) DeleteRecord(name, dbName string, input RecordDeleteInput) err
 	if err := validatePythonAndPaths(py, p); err != nil {
 		return err
 	}
+
+	model, err := sanitizeModelName(input.Model)
+	if err != nil {
+		return err
+	}
+
 	idsJSON, _ := json.Marshal(input.IDs)
 	ctx := "{}"
 	if input.Context != nil {
@@ -933,7 +966,7 @@ ids = %s
 records = env['%s'].with_context(%s).browse(ids)
 records.unlink()
 print('OK')
-`, string(idsJSON), input.Model, ctx)
+`, string(idsJSON), model, ctx)
 
 	cmd := exec.Command(py, "-m", "odoo", "shell", "-c", p.Conf, "-d", dbName)
 	cmd.Dir = p.Source

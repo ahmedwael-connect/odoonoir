@@ -394,9 +394,19 @@ func (s *FileStore) GetRatingSummary(moduleID string) (*RatingSummary, error) {
 }
 
 func (s *FileStore) updateModuleRating(module *MarketplaceModule) {
-	summary, _ := s.GetRatingSummary(module.ID)
-	module.Rating = summary.AverageRating
-	module.ReviewCount = summary.TotalReviews
+	// Inline rating calculation to avoid re-entrant lock (caller already holds mu.Lock).
+	reviews := s.reviews[module.ID]
+	if len(reviews) == 0 {
+		module.Rating = 0
+		module.ReviewCount = 0
+		return
+	}
+	var sum float64
+	for _, r := range reviews {
+		sum += float64(r.Rating)
+	}
+	module.Rating = sum / float64(len(reviews))
+	module.ReviewCount = len(reviews)
 }
 
 func (s *FileStore) GetStats() (*MarketplaceStats, error) {
@@ -503,7 +513,9 @@ func (s *Service) IndexModule(ctx context.Context, owner, repo string) (*Marketp
 		return nil, err
 	}
 
+	s.mu.Lock()
 	s.indexed[module.ID] = time.Now()
+	s.mu.Unlock()
 	return module, nil
 }
 
@@ -611,11 +623,9 @@ func (s *Service) GetMostInstalledModules(limit int) ([]MarketplaceModule, error
 	return s.store.ListModules(filter)
 }
 
-// IncrementInstallCount increments the install count for a module
+// IncrementInstallCount increments the install count for a module.
+// The store's own locking is sufficient; no Service-level lock needed.
 func (s *Service) IncrementInstallCount(moduleID string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	module, err := s.store.GetModule(moduleID)
 	if err != nil {
 		return err
@@ -629,7 +639,9 @@ func (s *Service) ReindexModule(ctx context.Context, owner, repo string) (*Marke
 	// Remove old index
 	moduleID := fmt.Sprintf("%s/%s", owner, repo)
 	s.store.DeleteModule(moduleID)
+	s.mu.Lock()
 	delete(s.indexed, moduleID)
+	s.mu.Unlock()
 	return s.IndexModule(ctx, owner, repo)
 }
 

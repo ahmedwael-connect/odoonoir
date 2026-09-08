@@ -200,9 +200,11 @@ func (s *Service) MoveAddonPath(name string, from, to int) ([]AddonPathEntry, er
 	if from < 1 || from > len(cur) || to < 1 || to > len(cur) {
 		return nil, fmt.Errorf("invalid move %d→%d (have %d entries)", from, to, len(cur))
 	}
-	// splice
+	// Copy slice to avoid mutating the original backing array
 	val := cur[from-1]
-	tmp := append(cur[:from-1], cur[from:]...)
+	tmp := make([]string, 0, len(cur)-1)
+	tmp = append(tmp, cur[:from-1]...)
+	tmp = append(tmp, cur[from:]...)
 	pos := to - 1
 	if to > from {
 		pos = to - 1

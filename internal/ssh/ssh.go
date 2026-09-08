@@ -16,6 +16,12 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
+// shellQuote wraps a path in single quotes for safe shell interpolation.
+// It escapes any embedded single quotes by ending the string, adding an escaped quote, and starting a new string.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+}
+
 // Client represents an SSH connection to a remote host
 type Client struct {
 	client   *ssh.Client
@@ -278,9 +284,9 @@ func (c *Client) CopyFile(ctx context.Context, src, dst string, toRemote bool) e
 
 	var cmd string
 	if toRemote {
-		cmd = fmt.Sprintf("scp -t %s", dst)
+		cmd = fmt.Sprintf("scp -t %s", shellQuote(dst))
 	} else {
-		cmd = fmt.Sprintf("scp -f %s", src)
+		cmd = fmt.Sprintf("scp -f %s", shellQuote(src))
 	}
 
 	_, err = session.StdinPipe()
@@ -377,17 +383,17 @@ func (c *Client) GetRemoteInfo(ctx context.Context) (*RemoteInfo, error) {
 
 // File operations
 func (c *Client) ReadFile(ctx context.Context, path string) (string, error) {
-	return c.RunCommand(ctx, fmt.Sprintf("cat %s", path))
+	return c.RunCommand(ctx, fmt.Sprintf("cat %s", shellQuote(path)))
 }
 
 func (c *Client) WriteFile(ctx context.Context, path, content string) error {
-	cmd := fmt.Sprintf("cat > %s << 'EOF'\n%s\nEOF", path, content)
+	cmd := fmt.Sprintf("cat > %s << 'EOF'\n%s\nEOF", shellQuote(path), content)
 	_, err := c.RunCommand(ctx, cmd)
 	return err
 }
 
 func (c *Client) FileExists(ctx context.Context, path string) (bool, error) {
-	out, err := c.RunCommand(ctx, fmt.Sprintf("test -f %s && echo exists || echo missing", path))
+	out, err := c.RunCommand(ctx, fmt.Sprintf("test -f %s && echo exists || echo missing", shellQuote(path)))
 	if err != nil {
 		return false, err
 	}
@@ -395,7 +401,7 @@ func (c *Client) FileExists(ctx context.Context, path string) (bool, error) {
 }
 
 func (c *Client) ListDir(ctx context.Context, path string) ([]string, error) {
-	out, err := c.RunCommand(ctx, fmt.Sprintf("ls -1 %s", path))
+	out, err := c.RunCommand(ctx, fmt.Sprintf("ls -1 %s", shellQuote(path)))
 	if err != nil {
 		return nil, err
 	}

@@ -203,11 +203,12 @@ func (c *OdooConf) Set(key, value string) {
 // with the comment/blank block attached directly above each occurrence.
 func (c *OdooConf) Unset(key string) {
 	removed := false
-	out := c.lines[:0]
-	for i := 0; i < len(c.lines); {
+	var out []Line
+	for i := 0; i < len(c.lines); i++ {
 		l := c.lines[i]
 		if isOptions(l) && l.Key == key && (l.Kind == KindKey || l.Kind == KindCommentedKey) {
-			j := i - 1
+			// Remove attached comment/blank block above
+			j := len(out) - 1
 			for j >= 0 && (out[j].Kind == KindComment || out[j].Kind == KindBlank) {
 				j--
 			}
@@ -216,7 +217,6 @@ func (c *OdooConf) Unset(key string) {
 		} else {
 			out = append(out, l)
 		}
-		i++
 	}
 	if removed {
 		c.dirty = true
@@ -486,9 +486,16 @@ func (c *OdooConf) AddonsMove(from, to int) error {
 		return nil
 	}
 	p := cur[from]
-	rest := append(cur[:from], cur[from+1:]...)
-	cur = append(rest[:to], append([]string{p}, rest[to:]...)...)
-	return c.SetAddonsPath(cur)
+	// Copy to avoid mutating original backing array via append
+	rest := make([]string, 0, len(cur)-1)
+	rest = append(rest, cur[:from]...)
+	rest = append(rest, cur[from+1:]...)
+	// Insert at position
+	newPaths := make([]string, 0, len(rest)+1)
+	newPaths = append(newPaths, rest[:to]...)
+	newPaths = append(newPaths, p)
+	newPaths = append(newPaths, rest[to:]...)
+	return c.SetAddonsPath(newPaths)
 }
 
 func clampIndex(i, n int) int {
@@ -539,8 +546,9 @@ func (c *OdooConf) RemoveRawAddonsEntry(path string) {
 			}
 		}
 	}
-	// remove from commented line
-	for i, l := range c.lines {
+	// remove from commented line — iterate backwards to avoid index shift on mutation
+	for i := len(c.lines) - 1; i >= 0; i-- {
+		l := c.lines[i]
 		if !isOptions(l) || l.Key != "addons_path" || l.Kind != KindCommentedKey {
 			continue
 		}

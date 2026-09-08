@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -88,7 +89,19 @@ func NewShellSession(inst *instance.Instance, p instance.Paths, py, dbName strin
 // HandleWS upgrades HTTP to WebSocket and pipes stdin/stdout/stderr.
 func (s *ShellSession) HandleWS(w http.ResponseWriter, r *http.Request) error {
 	upgrader := websocket.Upgrader{
-		CheckOrigin: func(r *http.Request) bool { return true },
+		CheckOrigin: func(r *http.Request) bool {
+			origin := r.Header.Get("Origin")
+			if origin == "" {
+				return true // local requests (e.g. curl) may not set Origin
+			}
+			// Allow localhost variants — the app is local-only
+			for _, allowed := range []string{"http://localhost", "http://127.0.0.1", "https://localhost", "https://127.0.0.1"} {
+				if strings.HasPrefix(origin, allowed) {
+					return true
+				}
+			}
+			return false
+		},
 		ReadBufferSize:  4096,
 		WriteBufferSize: 4096,
 	}

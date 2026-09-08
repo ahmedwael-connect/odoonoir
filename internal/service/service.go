@@ -698,7 +698,11 @@ func (s *Service) runScheduledBackup(name string) {
 
 	// Update last run time
 	s.mu.Lock()
-	inst2, _ := s.reg.Get(name)
+	inst2, err := s.reg.Get(name)
+	if err != nil {
+		s.mu.Unlock()
+		return
+	}
 	now := time.Now()
 	inst2.BackupScheduleLastRun = &now
 	// Update next run
@@ -1097,7 +1101,10 @@ type GitHubPublishOptions struct {
 
 // SearchGitHubModules searches for Odoo modules on GitHub
 func (s *Service) SearchGitHubModules(ctx context.Context, opts GitHubSearchOptions) (*GitHubSearchResult, error) {
-	if s.github == nil {
+	s.mu.Lock()
+	gh := s.github
+	s.mu.Unlock()
+	if gh == nil {
 		return nil, fmt.Errorf("GitHub client not configured - please connect your GitHub account")
 	}
 	query := ghinternal.SearchQuery{
@@ -1112,7 +1119,7 @@ func (s *Service) SearchGitHubModules(ctx context.Context, opts GitHubSearchOpti
 		Page:         opts.Page,
 		PerPage:      opts.PerPage,
 	}
-	result, err := s.github.SearchModules(ctx, query)
+	result, err := gh.SearchModules(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -1127,10 +1134,13 @@ func (s *Service) SearchGitHubModules(ctx context.Context, opts GitHubSearchOpti
 
 // GetGitHubModuleDetail fetches detailed information about a module
 func (s *Service) GetGitHubModuleDetail(ctx context.Context, owner, repo string) (*GitHubModuleDetail, error) {
-	if s.github == nil {
+	s.mu.Lock()
+	gh := s.github
+	s.mu.Unlock()
+	if gh == nil {
 		return nil, fmt.Errorf("GitHub client not configured")
 	}
-	detail, err := s.github.GetModule(context.Background(), owner, repo)
+	detail, err := gh.GetModule(context.Background(), owner, repo)
 	if err != nil {
 		return nil, err
 	}
@@ -1146,7 +1156,10 @@ func (s *Service) GetGitHubModuleDetail(ctx context.Context, owner, repo string)
 
 // InstallGitHubModule installs a module from GitHub
 func (s *Service) InstallGitHubModule(ctx context.Context, opts GitHubInstallOptions) (*ghinternal.InstallResult, error) {
-	if s.github == nil {
+	s.mu.Lock()
+	gh := s.github
+	s.mu.Unlock()
+	if gh == nil {
 		return nil, fmt.Errorf("GitHub client not configured")
 	}
 	inst, err := s.reg.Get(opts.Instance)
@@ -1163,15 +1176,18 @@ func (s *Service) InstallGitHubModule(ctx context.Context, opts GitHubInstallOpt
 		AutoDeps:  opts.AutoDeps,
 		RunTests:  opts.RunTests,
 	}
-	return s.github.InstallModule(ctx, spec)
+	return gh.InstallModule(ctx, spec)
 }
 
 // PublishGitHubModule publishes a local module to GitHub
 func (s *Service) PublishGitHubModule(ctx context.Context, opts GitHubPublishOptions) error {
-	if s.github == nil {
+	s.mu.Lock()
+	gh := s.github
+	s.mu.Unlock()
+	if gh == nil {
 		return fmt.Errorf("GitHub client not configured")
 	}
-	return s.github.PublishModule(ctx, ghinternal.PublishOptions{
+	return gh.PublishModule(ctx, ghinternal.PublishOptions{
 		ModulePath:   opts.ModulePath,
 		Owner:        opts.Owner,
 		Repo:         opts.Repo,
@@ -1185,7 +1201,10 @@ func (s *Service) PublishGitHubModule(ctx context.Context, opts GitHubPublishOpt
 
 // SyncGitHubModule syncs a module with its GitHub repository
 func (s *Service) SyncGitHubModule(ctx context.Context, instanceName, owner, repo, branch string) (*ghinternal.SyncResult, error) {
-	if s.github == nil {
+	s.mu.Lock()
+	gh := s.github
+	s.mu.Unlock()
+	if gh == nil {
 		return nil, fmt.Errorf("GitHub client not configured")
 	}
 	inst, err := s.reg.Get(instanceName)
@@ -1198,49 +1217,68 @@ func (s *Service) SyncGitHubModule(ctx context.Context, instanceName, owner, rep
 		Branch:   branch,
 		Instance: inst,
 	}
-	return s.github.SyncModule(ctx, spec)
+	return gh.SyncModule(ctx, spec)
 }
 
 // SetGitHubToken sets the GitHub OAuth token
 func (s *Service) SetGitHubToken(ctx context.Context, token string) error {
-	tokenStore, _ := ghinternal.NewFileTokenStore()
+	tokenStore, err := ghinternal.NewFileTokenStore()
+	if err != nil {
+		return fmt.Errorf("open token store: %w", err)
+	}
 	if err := tokenStore.Set(token); err != nil {
 		return err
 	}
+	s.mu.Lock()
 	s.github = ghinternal.NewClient(token)
+	s.mu.Unlock()
 	return nil
 }
 
 // GetGitHubToken returns the current GitHub token
 func (s *Service) GetGitHubToken(ctx context.Context) (string, error) {
-	tokenStore, _ := ghinternal.NewFileTokenStore()
+	tokenStore, err := ghinternal.NewFileTokenStore()
+	if err != nil {
+		return "", fmt.Errorf("open token store: %w", err)
+	}
 	return tokenStore.Get()
 }
 
 // ClearGitHubToken removes the GitHub token
 func (s *Service) ClearGitHubToken(ctx context.Context) error {
-	tokenStore, _ := ghinternal.NewFileTokenStore()
+	tokenStore, err := ghinternal.NewFileTokenStore()
+	if err != nil {
+		return fmt.Errorf("open token store: %w", err)
+	}
 	if err := tokenStore.Delete(); err != nil {
 		return err
 	}
+	s.mu.Lock()
 	s.github = nil
+	s.mu.Unlock()
 	return nil
 }
 
 // ValidateGitHubToken validates the current GitHub token
 func (s *Service) ValidateGitHubToken(ctx context.Context) (interface{}, error) {
-	if s.github == nil {
+	s.mu.Lock()
+	gh := s.github
+	s.mu.Unlock()
+	if gh == nil {
 		return nil, fmt.Errorf("no GitHub token configured")
 	}
-	return s.github.ValidateToken(ctx)
+	return gh.ValidateToken(ctx)
 }
 
 // GetGitHubTokenScopes returns the scopes of the current GitHub token
 func (s *Service) GetGitHubTokenScopes(ctx context.Context) ([]string, error) {
-	if s.github == nil {
+	s.mu.Lock()
+	gh := s.github
+	s.mu.Unlock()
+	if gh == nil {
 		return nil, fmt.Errorf("no GitHub token configured")
 	}
-	return s.github.GetTokenScopes(ctx)
+	return gh.GetTokenScopes(ctx)
 }
 
 // ════════════════════════════════════════════════════════════════════════
