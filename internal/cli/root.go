@@ -14,7 +14,7 @@ import (
 )
 
 // Version is the CLI build version (overridable via -ldflags).
-var Version = "0.23.0"
+var Version = "0.24.0"
 
 var (
 	cfg         *config.Config
@@ -81,6 +81,7 @@ func init() {
 		newCompletionCmd(),
 		newDashCmd(),
 		newPSCmd(),
+		newSelfUpdateCmd(),
 		withInstanceCompletion(newWatchCmd()),
 	)
 }

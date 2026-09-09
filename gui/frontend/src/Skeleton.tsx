@@ -33,4 +33,22 @@ export function SkeletonTable({ rows = 5, cols = 4 }: { rows?: number; cols?: nu
   );
 }
 
+export function SkeletonCard() {
+  return (
+    <div className="card p-4 space-y-3">
+      <div className="skeleton h-4 w-1/3 rounded" />
+      <div className="skeleton h-8 w-1/2 rounded" />
+      <div className="skeleton h-3 w-2/3 rounded" />
+    </div>
+  );
+}
 
+export function SkeletonGrid({ count = 4 }: { count?: number }) {
+  return (
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      {Array.from({ length: count }).map((_, i) => (
+        <SkeletonCard key={i} />
+      ))}
+    </div>
+  );
+}

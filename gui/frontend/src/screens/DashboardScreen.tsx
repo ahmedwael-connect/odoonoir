@@ -69,7 +69,7 @@ export function DashboardScreen() {
         <div className="card p-4"><div className="text-xs text-muted-foreground">Alerts</div><div className="text-2xl font-bold">{(data.Alerts ?? data.alerts ?? []).length}</div><div className="text-xs">health & backup • live</div>{cpuSpark}</div>
         <div className="card p-4"><div className="text-xs text-muted-foreground">Health</div><div className="text-2xl font-bold">{data.InstanceMetrics ? Math.round(data.InstanceMetrics.reduce((a:number,c:any)=>a+(c.HealthScore||c.healthScore||0),0) / Math.max(1,data.InstanceMetrics.length)) : 0}%</div><div className="text-xs">avg score {memSpark}</div></div>
       </div>
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="card p-3"><div className="text-xs text-muted-foreground">Host CPU</div><div className="text-lg font-bold">{(data.hostCPU ?? data.HostCPU ?? 0).toFixed(1)}%</div>{cpuSpark}</div>
         <div className="card p-3"><div className="text-xs text-muted-foreground">Host Mem</div><div className="text-lg font-bold">{(data.hostMemPercent ?? data.HostMemPercent ?? 0).toFixed(1)}%</div>{memSpark}</div>
         <div className="card p-3"><div className="text-xs text-muted-foreground">Host Disk</div><div className="text-lg font-bold">{(data.hostDiskPercent ?? data.HostDiskPercent ?? 0).toFixed(1)}%</div><div className="text-xs">{data.TotalInstances ?? 0} instances</div></div>

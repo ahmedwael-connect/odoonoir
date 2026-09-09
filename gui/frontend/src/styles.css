@@ -597,19 +597,20 @@ tbody tr:hover { background: var(--bg-hover); }
   flex-direction: column;
   gap: var(--sp-2);
   pointer-events: none;
+  max-width: calc(100vw - 2rem);
 }
 .toast {
   pointer-events: auto;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  align-items: flex-start;
   gap: var(--sp-3);
   padding: var(--sp-3) var(--sp-4);
   border-radius: var(--r-lg);
   font-size: var(--text-md);
   animation: toastIn 0.25s var(--ease-out);
-  max-width: 380px;
+  max-width: 420px;
   box-shadow: var(--shadow-lg);
+  line-height: 1.4;
 }
 .toast-success { background: var(--success-bg); border: 1px solid var(--success-border); color: #6ee7b7; }
 .toast-error { background: var(--danger-bg); border: 1px solid var(--danger-border); color: var(--danger); }
@@ -622,8 +623,14 @@ tbody tr:hover { background: var(--bg-hover); }
   font-size: 16px;
   padding: 0 2px;
   opacity: 0.7;
+  line-height: 1;
 }
 .toast-close:hover { opacity: 1; }
+
+@media (max-width: 639px) {
+  .toast-container { top: var(--sp-2); right: var(--sp-2); left: var(--sp-2); }
+  .toast { max-width: 100%; font-size: var(--text-sm); }
+}
 
 /* ═══════════════════════════════════════════════════════════════════════
    Action Grid (Instance Detail)

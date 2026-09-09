@@ -25,7 +25,7 @@ export function ModulesScreen({
   toast,
 }: {
   name: string;
-  toast: (msg: string, kind?: "success" | "error" | "info") => void;
+  toast: (msg: string, kind?: "success" | "error" | "info", hint?: string) => void;
 }) {
   const [modules, setModules] = useState<ModuleView[]>([]);
   const [databases, setDatabases] = useState<DatabaseView[]>([]);

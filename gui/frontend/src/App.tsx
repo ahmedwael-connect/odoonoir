@@ -24,6 +24,7 @@ import { InstanceTopNav } from "./components/organisms/InstanceTopNav";
 import { AppHeader } from "./components/organisms/AppHeader";
 import { AppShell } from "./layouts/AppShell";
 import { useInstanceNav, instanceNavTabs, moreInstanceTabs } from "./hooks/useInstanceNav";
+import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import type { Screen } from "./hooks/useInstanceNav";
 import { Button } from "./components/atoms/Button";
 import { Play, Square, RotateCw, HardDrive, ScrollText, Settings2, RefreshCw, Package, Stethoscope, Trash2, Code2, Building2, Folder } from "lucide-react";
@@ -79,22 +80,23 @@ interface Toast {
   id: number;
   message: string;
   kind: "success" | "error" | "info";
+  hint?: string;
 }
 
 const ToastCtx = createContext<{
-  toast: (message: string, kind?: Toast["kind"]) => void;
+  toast: (message: string, kind?: Toast["kind"], hint?: string) => void;
 }>({ toast: () => { throw new Error("useToast() must be used within ToastProvider"); } });
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const toastIdRef = useRef(0);
 
-  const toast = useCallback((message: string, kind: Toast["kind"] = "info") => {
+  const toast = useCallback((message: string, kind: Toast["kind"] = "info", hint?: string) => {
     const id = ++toastIdRef.current;
-    setToasts((prev) => [...prev.slice(-6), { id, message, kind }]);
+    setToasts((prev) => [...prev.slice(-6), { id, message, kind, hint }]);
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 4000);
+    }, kind === "error" ? 6000 : 4000);
   }, []);
 
   return (
@@ -103,9 +105,12 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       <div className="toast-container" role="status" aria-live="polite">
         {toasts.map((t) => (
           <div key={t.id} className={`toast toast-${t.kind}`}>
-            <span>{t.message}</span>
+            <div className="flex-1 min-w-0">
+              <span className="font-medium">{t.message}</span>
+              {t.hint && <div className="text-xs opacity-70 mt-0.5">{t.hint}</div>}
+            </div>
             <button
-              className="toast-close"
+              className="toast-close ml-2 shrink-0"
               onClick={() => setToasts((prev) => prev.filter((x) => x.id !== t.id))}
             >
               ×
@@ -383,6 +388,19 @@ export default function App() {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, []);
+
+  // Global keyboard shortcuts
+  useKeyboardShortcuts({
+    "mod+1": () => { if (selected) setScreen("overview"); },
+    "mod+2": () => { if (selected) setScreen("databases"); },
+    "mod+3": () => { if (selected) setScreen("modules"); },
+    "mod+4": () => { if (selected) setScreen("logs"); },
+    "mod+5": () => { if (selected) setScreen("terminal"); },
+    "mod+6": () => { if (selected) setScreen("records"); },
+    "mod+7": () => { if (selected) setScreen("config"); },
+    "mod+d": () => setScreen("dashboard" as Screen),
+    "mod+n": () => setScreen("create"),
+  });
 
   /* Boot + event listeners */
   useEffect(() => {
