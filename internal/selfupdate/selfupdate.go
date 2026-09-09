@@ -89,7 +89,8 @@ func DownloadAndInstall(progress func(string)) error {
 }
 
 func fetchLatestRelease() (*Release, error) {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", repoOwner, repoName)
+	// Try /releases/latest first (stable only)
+	url := "https://api.github.com/repos/" + repoOwner + "/" + repoName + "/releases/latest"
 	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Get(url)
 	if err != nil {
@@ -97,18 +98,33 @@ func fetchLatestRelease() (*Release, error) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == 404 {
-		return nil, fmt.Errorf("no releases found at github.com/%s/%s", repoOwner, repoName)
-	}
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("GitHub API returned %d", resp.StatusCode)
+	if resp.StatusCode == 200 {
+		var rel Release
+		if err := json.NewDecoder(resp.Body).Decode(&rel); err == nil && rel.TagName != "" {
+			return &rel, nil
+		}
 	}
 
-	var rel Release
-	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
-		return nil, fmt.Errorf("decode release: %w", err)
+	// Fallback: /releases (includes pre-releases)
+	url = "https://api.github.com/repos/" + repoOwner + "/" + repoName + "/releases"
+	resp2, err := client.Get(url)
+	if err != nil {
+		return nil, err
 	}
-	return &rel, nil
+	defer resp2.Body.Close()
+
+	if resp2.StatusCode != 200 {
+		return nil, fmt.Errorf("no releases found at github.com/%s/%s", repoOwner, repoName)
+	}
+
+	var releases []Release
+	if err := json.NewDecoder(resp2.Body).Decode(&releases); err != nil {
+		return nil, fmt.Errorf("decode releases: %w", err)
+	}
+	if len(releases) == 0 {
+		return nil, fmt.Errorf("no releases found at github.com/%s/%s", repoOwner, repoName)
+	}
+	return &releases[0], nil
 }
 
 func findDebAsset(tag string) (string, error) {
